@@ -6,18 +6,18 @@
   <title>SentrySkills – LLM-Native Self-Guard for AI Agents</title>
   <style>
     :root {
-      --bg: #0a0e1a;
-      --bg2: #0f1526;
-      --bg3: #151c30;
-      --border: #1e2a42;
+      --bg: #ffffff;
+      --bg2: #f8fafc;
+      --bg3: #f1f5f9;
+      --border: #e2e8f0;
       --accent: #3b82f6;
       --accent2: #6366f1;
-      --green: #22c55e;
-      --red: #ef4444;
-      --yellow: #f59e0b;
-      --text: #e2e8f0;
-      --text2: #94a3b8;
-      --text3: #64748b;
+      --green: #16a34a;
+      --red: #dc2626;
+      --yellow: #d97706;
+      --text: #0f172a;
+      --text2: #475569;
+      --text3: #94a3b8;
       --mono: 'JetBrains Mono', 'Fira Code', monospace;
     }
 
@@ -35,7 +35,7 @@
       position: fixed; top: 0; left: 0; right: 0; z-index: 100;
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 2rem; height: 60px;
-      background: rgba(10,14,26,.85);
+      background: rgba(255,255,255,.9);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
@@ -81,15 +81,15 @@
     .hero-glow {
       position: absolute; top: 20%; left: 50%; transform: translateX(-50%);
       width: 600px; height: 300px;
-      background: radial-gradient(ellipse, rgba(59,130,246,.15) 0%, transparent 70%);
+      background: radial-gradient(ellipse, rgba(59,130,246,.08) 0%, transparent 70%);
       pointer-events: none;
     }
     .badge {
       display: inline-flex; align-items: center; gap: .4rem;
       padding: .3rem .9rem; border-radius: 99px;
-      border: 1px solid rgba(59,130,246,.3);
-      background: rgba(59,130,246,.08);
-      color: #93c5fd; font-size: .8rem; margin-bottom: 1.5rem;
+      border: 1px solid rgba(59,130,246,.25);
+      background: rgba(59,130,246,.06);
+      color: #2563eb; font-size: .8rem; margin-bottom: 1.5rem;
       position: relative;
     }
     .badge-dot {
@@ -150,8 +150,8 @@
     .section-tag {
       display: inline-block;
       padding: .2rem .7rem; border-radius: 4px;
-      background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.2);
-      color: #93c5fd; font-size: .75rem; font-weight: 600;
+      background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.2);
+      color: #2563eb; font-size: .75rem; font-weight: 600;
       text-transform: uppercase; letter-spacing: .05em;
       margin-bottom: .8rem;
     }
@@ -181,11 +181,11 @@
       font-weight: 800; font-size: 1rem;
       flex-shrink: 0;
     }
-    .flow-num.entry    { background: rgba(59,130,246,.15); color: #60a5fa; border: 1px solid rgba(59,130,246,.3); }
-    .flow-num.orch     { background: rgba(99,102,241,.15); color: #a5b4fc; border: 1px solid rgba(99,102,241,.3); }
-    .flow-num.pre      { background: rgba(245,158,11,.15); color: #fcd34d; border: 1px solid rgba(245,158,11,.3); }
-    .flow-num.run      { background: rgba(239,68,68,.15);  color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
-    .flow-num.out      { background: rgba(34,197,94,.15);  color: #86efac; border: 1px solid rgba(34,197,94,.3); }
+    .flow-num.entry    { background: rgba(59,130,246,.12); color: #2563eb; border: 1px solid rgba(59,130,246,.3); }
+    .flow-num.orch     { background: rgba(99,102,241,.12); color: #4f46e5; border: 1px solid rgba(99,102,241,.3); }
+    .flow-num.pre      { background: rgba(245,158,11,.12); color: #d97706; border: 1px solid rgba(245,158,11,.3); }
+    .flow-num.run      { background: rgba(239,68,68,.12);  color: #dc2626; border: 1px solid rgba(239,68,68,.3); }
+    .flow-num.out      { background: rgba(34,197,94,.12);  color: #16a34a; border: 1px solid rgba(34,197,94,.3); }
     .flow-title { font-weight: 700; font-size: 1rem; margin-bottom: .3rem; }
     .flow-name { font-family: var(--mono); font-size: .8rem; color: var(--text3); margin-bottom: .5rem; }
     .flow-desc { font-size: .9rem; color: var(--text2); }
@@ -195,9 +195,9 @@
       font-size: .75rem; font-family: var(--mono);
       background: var(--bg3); border: 1px solid var(--border); color: var(--text3);
     }
-    .tag.allow  { background: rgba(34,197,94,.1);  border-color: rgba(34,197,94,.3);  color: #86efac; }
-    .tag.block  { background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.3);  color: #fca5a5; }
-    .tag.down   { background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); color: #fcd34d; }
+    .tag.allow  { background: rgba(34,197,94,.1);  border-color: rgba(34,197,94,.3);  color: #16a34a; }
+    .tag.block  { background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.3);  color: #dc2626; }
+    .tag.down   { background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); color: #d97706; }
 
     /* ── FEATURES ── */
     .features-grid {
@@ -275,11 +275,11 @@
       font-family: var(--mono); font-size: .85rem;
       line-height: 1.7; overflow-x: auto;
     }
-    .c-comment { color: #475569; }
-    .c-cmd     { color: #93c5fd; }
-    .c-flag    { color: #a5b4fc; }
-    .c-str     { color: #86efac; }
-    .c-key     { color: #fcd34d; }
+    .c-comment { color: #94a3b8; }
+    .c-cmd     { color: #2563eb; }
+    .c-flag    { color: #7c3aed; }
+    .c-str     { color: #16a34a; }
+    .c-key     { color: #d97706; }
 
     /* ── POLICY ── */
     .policy-cards {
@@ -297,9 +297,9 @@
       border-radius: 4px; font-size: .75rem; font-weight: 700;
       margin-bottom: .8rem; font-family: var(--mono);
     }
-    .policy-badge.balanced { background: rgba(59,130,246,.15); color: #60a5fa; }
-    .policy-badge.strict   { background: rgba(239,68,68,.15);  color: #fca5a5; }
-    .policy-badge.permissive { background: rgba(34,197,94,.15); color: #86efac; }
+    .policy-badge.balanced { background: rgba(59,130,246,.1); color: #2563eb; }
+    .policy-badge.strict   { background: rgba(239,68,68,.1);  color: #dc2626; }
+    .policy-badge.permissive { background: rgba(34,197,94,.1); color: #16a34a; }
     .policy-title { font-weight: 700; margin-bottom: .4rem; }
     .policy-desc  { font-size: .85rem; color: var(--text2); }
     .policy-use   { font-size: .8rem; color: var(--text3); margin-top: .5rem; }
@@ -345,10 +345,6 @@
 <section class="hero">
   <div class="hero-grid"></div>
   <div class="hero-glow"></div>
-  <div class="badge">
-    <span class="badge-dot"></span>
-    <span data-i18n="badge">Open Source · MIT-0 · Zero Dependencies</span>
-  </div>
   <h1>
     <span data-i18n="hero.title1">Self-Guarding Security</span><br>
     <span class="accent" data-i18n="hero.title2">for AI Agents</span>
@@ -664,8 +660,7 @@ const i18n = {
     'nav.how': 'How It Works',
     'nav.detection': 'Detection',
     'nav.install': 'Install',
-    'badge': 'Open Source · MIT-0 · Zero Dependencies',
-    'hero.title1': 'Self-Guarding Security',
+'hero.title1': 'Self-Guarding Security',
     'hero.title2': 'for AI Agents',
     'hero.sub': 'LLM-native skill package that teaches agents to protect themselves. Three-stage protection — preflight, runtime, output — driven by the agent\'s own intelligence.',
     'hero.cta1': 'Get Started',
@@ -756,8 +751,7 @@ const i18n = {
     'nav.how': '工作原理',
     'nav.detection': '检测规则',
     'nav.install': '安装',
-    'badge': '开源 · MIT-0 · 零外部依赖',
-    'hero.title1': 'AI Agent 自防护安全',
+'hero.title1': 'AI Agent 自防护安全',
     'hero.title2': '技能包',
     'hero.sub': 'LLM 原生自防护技能包，把安全检查编码为 Agent 的行为模式。三段式防护——预检、运行时、输出——由 Agent 自身智能驱动。',
     'hero.cta1': '快速开始',
