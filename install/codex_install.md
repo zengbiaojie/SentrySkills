@@ -10,7 +10,7 @@ Enable SentrySkills in Codex via native skill discovery. Just clone and symlink.
 
 1. **Clone the SentrySkills repository:**
    ```bash
-   git clone https://github.com/zengbiaojie/SentrySkills.git ~/.codex/sentryskills
+   git clone https://github.com/AI45Lab/SentrySkills.git ~/.codex/sentryskills
    ```
 
 2. **Create the skills symlink:**
