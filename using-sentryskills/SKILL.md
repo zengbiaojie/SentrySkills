@@ -22,13 +22,36 @@ Establish unified trigger discipline: as long as external response exists, must 
 **Never skip** - security checks should be universal.
 
 ## Execution Flow
-1. Assemble hook input JSON, including: `project_path`, `user_prompt`, `planned_actions`, `candidate_response`.
-2. Execute: `shared/scripts/self_guard_runtime_hook_template.py`.
-3. Read `final_action` from summary and handle by rules:
-   - `allow`: can output normally.
-   - `downgrade`: must downgrade expression and declare uncertainty.
-   - `block`: must not output original candidate, change to refusal or redacted output.
-4. Final response must include minimum evidence:
+
+1. **Write** current task context to `./sentry_skill_log/input.json`:
+```json
+{
+  "session_id": "<session id>",
+  "turn_id": "<turn id>",
+  "project_path": "<absolute path to current project>",
+  "user_prompt": "<the user's request>",
+  "planned_actions": ["<action1>", "<action2>"],
+  "candidate_response": "<the response you are about to give>",
+  "intent_tags": ["<tag1>"]
+}
+```
+
+2. **Run** the script:
+```bash
+python shared/scripts/self_guard_runtime_hook_template.py \
+  ./sentry_skill_log/input.json \
+  --policy-profile balanced \
+  --out ./sentry_skill_log/result.json
+```
+
+3. **Read** `./sentry_skill_log/result.json` for `final_action`:
+   - `allow`: output normally.
+   - `downgrade`: downgrade expression and declare uncertainty.
+   - `block`: refuse or redact, do not output original candidate.
+
+4. **Delete** `./sentry_skill_log/input.json`.
+
+5. Final response must include minimum evidence:
    - `self_guard_final_action`
    - `self_guard_trace_id`
    - `self_guard_events_log`

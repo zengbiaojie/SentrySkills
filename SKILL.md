@@ -82,31 +82,34 @@ Each sub-skill has its own `SKILL.md` with specific requirements.
 
 ## Recommended Usage
 
-### Default (turn_dir layout)
+### Step 1 — Write input JSON
+
+Before calling the script, write the current task context to `./sentry_skill_log/input.json`:
+
+```json
+{
+  "session_id": "<current session id>",
+  "turn_id": "<current turn id>",
+  "project_path": "<absolute path to current project>",
+  "user_prompt": "<the user's request>",
+  "planned_actions": ["<action1>", "<action2>"],
+  "candidate_response": "<the response you are about to give>",
+  "intent_tags": ["<tag1>", "<tag2>"]
+}
+```
+
+### Step 2 — Run the script
 
 ```bash
 python shared/scripts/self_guard_runtime_hook_template.py \
-  shared/references/input_schema.json \
-  --policy shared/references/runtime_policy.balanced.json \
-  --policy-profile balanced
+  ./sentry_skill_log/input.json \
+  --policy-profile balanced \
+  --out ./sentry_skill_log/result.json
 ```
 
-### With summary output
+### Step 3 — Read result and delete input
 
-```bash
-python shared/scripts/self_guard_runtime_hook_template.py \
-  shared/references/input_schema.json \
-  --out ./sentry_skill_log/sentryskills_summary.json
-```
-
-### Legacy event stream
-
-```bash
-python shared/scripts/self_guard_runtime_hook_template.py \
-  shared/references/input_schema.json \
-  --log-layout legacy \
-  --events-log ./sentry_skill_log/sentryskills_events.jsonl
-```
+Read `./sentry_skill_log/result.json` for `final_action`, then delete `./sentry_skill_log/input.json`.
 
 ## Mandatory Logging Protocol
 
