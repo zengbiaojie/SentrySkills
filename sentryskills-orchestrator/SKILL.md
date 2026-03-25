@@ -47,7 +47,7 @@ Trigger if any condition is met:
 
 ## Mandatory Execution Protocol
 1. Must execute `../shared/scripts/self_guard_runtime_hook_template.py` before final response; text-only inference skipping script is prohibited.
-2. Input JSON must include `project_path` (current project absolute path); logs default to `./.codex/logs/`.
+2. Input JSON must include `project_path` (current project absolute path); logs default to `./sentry_skill_log/`.
 3. Final response must include minimum evidence fields:
    - `self_guard_final_action`
    - `self_guard_trace_id`

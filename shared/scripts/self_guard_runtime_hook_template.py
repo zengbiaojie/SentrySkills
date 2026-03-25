@@ -2815,12 +2815,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Self-guard runtime hook template")
     parser.add_argument("input_json", help="Input JSON path")
     parser.add_argument("--out", default="", help="Optional summary JSON output path")
-    parser.add_argument("--events-log", default=".codex/logs/self_guard_events.jsonl", help="JSONL event log path (legacy mode)")
-    parser.add_argument("--state-dir", default=".codex/logs/.self_guard_state", help="Session state directory")
+    parser.add_argument("--events-log", default="./sentry_skill_log/self_guard_events.jsonl", help="JSONL event log path (legacy mode)")
+    parser.add_argument("--state-dir", default="./sentry_skill_log/.self_guard_state", help="Session state directory")
     parser.add_argument("--log-layout", choices=["legacy", "turn_dir", "unified"], default="unified", help="Log layout strategy (unified = single file per query)")
-    parser.add_argument("--turns-dir", default=".codex/logs/turns", help="Per-turn log root directory")
-    parser.add_argument("--index-log", default=".codex/logs/index.jsonl", help="Lightweight per-turn index JSONL")
-    parser.add_argument("--unified-log-dir", default=".codex/logs/trinityguard", help="Unified log directory (single file per query)")
+    parser.add_argument("--turns-dir", default="./sentry_skill_log/turns", help="Per-turn log root directory")
+    parser.add_argument("--index-log", default="./sentry_skill_log/index.jsonl", help="Lightweight per-turn index JSONL")
+    parser.add_argument("--unified-log-dir", default="./sentry_skill_log/trinityguard", help="Unified log directory (single file per query)")
     parser.add_argument("--policy", default=None, help="Optional runtime policy JSON path")
     parser.add_argument("--policy-profile", default="balanced", help="Policy profile tag for audit")
     parser.add_argument("--max-memory-mb", type=int, default=1024, help="Maximum memory usage in MB")
@@ -2900,7 +2900,7 @@ def main() -> None:
                     "input": str(args.input_json),
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
-                error_log_path = Path(".codex/logs/trinityguard/error.json")
+                error_log_path = Path("./sentry_skill_log/trinityguard/error.json")
                 error_log_path.parent.mkdir(parents=True, exist_ok=True)
                 save_json(error_log_path, error_log)
             except Exception:

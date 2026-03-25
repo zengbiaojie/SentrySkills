@@ -96,7 +96,7 @@ python shared/scripts/self_guard_runtime_hook_template.py \
 ```bash
 python shared/scripts/self_guard_runtime_hook_template.py \
   shared/references/input_schema.json \
-  --out ./.codex/logs/sentryskills_summary.json
+  --out ./sentry_skill_log/sentryskills_summary.json
 ```
 
 ### Legacy event stream
@@ -105,7 +105,7 @@ python shared/scripts/self_guard_runtime_hook_template.py \
 python shared/scripts/self_guard_runtime_hook_template.py \
   shared/references/input_schema.json \
   --log-layout legacy \
-  --events-log ./.codex/logs/sentryskills_events.jsonl
+  --events-log ./sentry_skill_log/sentryskills_events.jsonl
 ```
 
 ## Mandatory Logging Protocol
@@ -120,17 +120,17 @@ python shared/scripts/self_guard_runtime_hook_template.py \
 
 ## Default Log Layout
 
-Log root: `./.codex/logs/`
+Log root: `./sentry_skill_log/`
 
 Per-turn directories:
-- `./.codex/logs/turns/YYYYMMDD_HHMMSS_<turn_id>/input.json`
-- `./.codex/logs/turns/YYYYMMDD_HHMMSS_<turn_id>/result.json`
+- `./sentry_skill_log/turns/YYYYMMDD_HHMMSS_<turn_id>/input.json`
+- `./sentry_skill_log/turns/YYYYMMDD_HHMMSS_<turn_id>/result.json`
 
 Global index:
-- `./.codex/logs/index.jsonl`
+- `./sentry_skill_log/index.jsonl`
 
 Session state:
-- `./.codex/logs/.self_guard_state/`
+- `./sentry_skill_log/.self_guard_state/`
 
 ## Policy Profiles
 

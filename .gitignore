@@ -46,6 +46,7 @@ htmlcov/
 # SentrySkills specific
 .codex/
 ./.codex/
+sentry_skill_log/
 logs/
 results/
 
