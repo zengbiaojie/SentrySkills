@@ -455,8 +455,8 @@
     }
   },
   "metadata": {
-    "total_rules": 33,
-    "enabled_rules": 11,
+    "total_rules": 24,
+    "enabled_rules": 24,
     "phases": {
       "preflight": 20,
       "runtime": 18,

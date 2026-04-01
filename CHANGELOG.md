@@ -5,6 +5,64 @@ All notable changes to SentrySkills will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-04-01
+
+### Added
+
+- **ROADMAP.md**: Comprehensive project roadmap with P0/P1/P2 task breakdown
+  - Two-path architecture implementation status
+  - Test suite, CI/CD, Docker support, CLI tool plans
+  - Version roadmap and success metrics
+- **Analysis Documentation**:
+  - `docs/corrected-flow.md` - Correct architecture understanding (SentrySkills = rule library + guide)
+  - `docs/flow-analysis.md` - Current implementation analysis and gap identification
+  - `docs/subagent-implementation.md` - Subagent implementation strategy discussion
+- **Verification Script**: `verify_p0_fixes.py` - Automated testing for critical fixes (all 5 tests pass)
+
+### Changed
+
+- **Documentation Restructure**: Clarified SKILL.md roles and responsibilities
+  - Root `SKILL.md`: Repositioned as project overview/user manual
+  - `using-sentryskills/SKILL.md`: Enhanced as primary execution guide
+    - Added risk assessment matrix (HIGH/MEDIUM/LOW criteria)
+    - Added decision tree (ASCII flowchart)
+    - Added Fast Pre-Assessment pseudocode
+    - Added framework integration examples (Claude Code/Codex/OpenClaw)
+    - Added next-turn check implementation with code examples
+- **Architecture Clarification**:
+  - Frameworks responsible for: big model pre-assessment, sync/async decision, subagent spawning
+  - SentrySkills provides: detection rules, check scripts, usage guide, logging system
+
+### Fixed
+
+- **Detection Rules Metadata**: Fixed `detection_rules.json` showing 11 enabled instead of 24
+- **All P0 Critical Fixes Verified**:
+  - Detection rules: All 24 rules enabled (metadata corrected)
+  - Policy differentiation: strict(2), balanced(3), permissive(5) confirmed working
+  - Whitelist false positives: Exact placeholder matching implemented
+  - Conversation history: Persisting to state file with 20-entry limit
+  - Unified logging: events_sink enabled for all log_layout modes
+
+### Technical Details
+
+**Documentation Structure**:
+```
+SKILL.md (root) → Project overview, skill package descriptions
+using-sentryskills/SKILL.md → Execution logic, integration examples
+sentryskills-orchestrator/SKILL.md → Orchestration, execution modes
+```
+
+**Two-Path Execution**:
+- HIGH/MEDIUM risk: Synchronous blocking pipeline
+- LOW risk: Async subagent monitoring
+- Risk assessment: Framework's internal LLM judgment
+
+**Verification**:
+- All P0 fixes tested and verified
+- `verify_p0_fixes.py`: 5/5 tests passing
+
+---
+
 ## [0.1.2] - 2026-04-01
 
 ### Added
