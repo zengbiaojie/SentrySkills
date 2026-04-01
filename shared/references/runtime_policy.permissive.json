@@ -39,7 +39,7 @@
     "batch_modify",
     "network_call"
   ],
-  "retry_threshold_downgrade": 3,
+  "retry_threshold_downgrade": 5,
   "single_source_types": [
     "tool_single_source"
   ],
@@ -49,7 +49,7 @@
     "\\b\\d{17}[0-9Xx]\\b"
   ],
   "force_uncertainty_prefix": "Conclusion uncertain based on single tool source.",
-  "block_on_highly_sensitive_leak": true,
+  "block_on_highly_sensitive_leak": false,
   "redaction_replacements": {
     "credential": "(?i)(api[_-]?key|token|password|secret)\\s*[:=]\\s*([^\\s,;]+)",
     "id": "\\b\\d{17}[0-9Xx]\\b",

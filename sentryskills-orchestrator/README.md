@@ -1,10 +1,11 @@
-# trinityguard-self-guard-orchestrator
+# sentryskills-orchestrator
 
-Single-turn orchestrator for preflight + runtime + output guard.
+Two-path orchestrator for preflight + runtime + output guard.
 
 ## Purpose
 
-- run all stages in order
+- coordinate the full pipeline (preflight → runtime → output guard → final decision)
+- run synchronously in the current process (HIGH path) or as a subagent (LOW path)
 - merge reason codes and matched rules
 - compute final decision and write auditable records
 

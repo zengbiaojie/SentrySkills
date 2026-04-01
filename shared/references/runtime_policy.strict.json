@@ -39,9 +39,10 @@
     "batch_modify",
     "network_call"
   ],
-  "retry_threshold_downgrade": 3,
+  "retry_threshold_downgrade": 2,
   "single_source_types": [
-    "tool_single_source"
+    "tool_single_source",
+    "tool_multi_source_unverified"
   ],
   "leak_patterns": [
     "(?i)(api[_-]?key|token|password|secret)\\s*[:=]\\s*[^\\s,;]+",

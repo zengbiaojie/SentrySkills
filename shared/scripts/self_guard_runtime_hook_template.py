@@ -2202,7 +2202,9 @@ def preflight_decision(
     attack_detection = detect_attack_patterns(user_prompt, policy)
 
     # Extended detection rules (Phase 1: Pattern Matching)
-    extended_detection = run_extended_detection(user_prompt, policy, phase="preflight")
+    # Scan user_prompt AND planned_actions content so injection patterns inside actions are caught
+    preflight_scan_text = user_prompt + "\n" + "\n".join(str(a) for a in planned_actions)
+    extended_detection = run_extended_detection(preflight_scan_text, policy, phase="preflight")
     if extended_detection.get("total", 0) > 0:
         # Process extended detection results
         for detail in extended_detection.get("details", []):
@@ -2371,13 +2373,16 @@ def preflight_decision(
                     blocked_actions.append(action)
                     risk_summary.append(f"critical action '{action}' in {detected_env} environment")
                     decision_reason_codes.append(f"PF_CRITICAL_ACTION_{action.upper()}")
+                    matched_rules.append(f"critical_action:{action}")
                 elif risk_assessment["risk_level"] == "high":
                     risk_summary.append(f"high-risk action '{action}' (risk: {risk_assessment['risk_level']})")
                     decision_reason_codes.append("PF_HIGH_RISK_ACTION")
+                    matched_rules.append(f"high_risk_action:{action}")
                     if decision != "block":
                         decision = "downgrade"
                 else:
                     risk_summary.append(f"action '{action}' planned")
+                    matched_rules.append(f"action:{action}")
                     if decision != "block":
                         decision = "downgrade"
 
@@ -2504,41 +2509,39 @@ def runtime_decision(runtime_events: List[Dict[str, Any]], sources: List[Dict[st
     }
 
 
+_PLACEHOLDER_RE = re.compile(
+    r'^(?:example|sample|placeholder|dummy|demo|fake|pseudo|illustration|'
+    r'your_(?:api_key|token|password|secret)|x{2,}|y{2,}|z{2,}|'
+    r'abc123|changeme|insert_here|<[^>]+>)$',
+    re.IGNORECASE
+)
+
+
+def _extract_value(matched_text: str) -> str:
+    """Extract the value portion from a key=value match, stripping quotes."""
+    parts = re.split(r'[:=]\s*', matched_text, maxsplit=1)
+    return parts[-1].strip().strip("\"'")
+
+
 def is_contextual_leak(text: str, match: re.Match) -> bool:
     """Check if pattern match represents actual leakage vs safe mention."""
     if not contextual_matching_enabled:
         return True  # Original behavior: all matches are leaks
 
     matched_text = match.group(0)
-    context_start = max(0, match.start() - 50)
-    context_end = min(len(text), match.end() + 50)
-    context = text[context_start:context_end].lower()
 
-    # Safe contexts
-    safe_contexts = [
-        "example", "sample", "placeholder", "dummy", "test", "fake",
-        "xxx", "yyy", "your_api_key", "your_token", "your_password",
-        "demo", "illustration", "pseudo"
-    ]
-
-    # Negation contexts
-    negation_contexts = [
-        "not", "without", "never", "avoid", "prevent", "don't", "no",
-        "don't", "no", "none"
-    ]
-
-    # Check safe context
-    for safe in safe_contexts:
-        if safe in context:
-            return False  # Safe example
-
-    # Check negation
-    for neg in negation_contexts:
-        if neg in context[:20]:
-            return False  # Negated
-
-    # Check already redacted
+    # Already redacted
     if "[redacted]" in matched_text.lower():
+        return False
+
+    # Only exempt when the matched value itself is a pure placeholder word,
+    # not when the surrounding context merely contains a placeholder word.
+    if _PLACEHOLDER_RE.match(_extract_value(matched_text)):
+        return False
+
+    # Negation context (limit to 20 chars before the match)
+    pre = text[max(0, match.start() - 20):match.start()].lower()
+    if any(neg in pre for neg in ("not ", "without ", "never ", "avoid ", "don't ", "do not ")):
         return False
 
     return True  # Actual leakage
@@ -2602,6 +2605,16 @@ def output_guard(
     leak_patterns: List[Pattern[str]],
 ) -> Dict[str, Any]:
     leakage = detect_leakage(candidate_response, leak_patterns)
+
+    # Run output-phase extended detection rules (e.g. data_leak, code_security categories)
+    extended_output = run_extended_detection(candidate_response, policy, phase="output")
+    extended_output_matched: List[str] = []
+    if extended_output.get("total", 0) > 0:
+        leakage = True  # treat any extended output match as a leak
+        for detail in extended_output.get("details", []):
+            extended_output_matched.append(
+                f"extended:{detail.get('category','?')}:{detail.get('rule','?')}"
+            )
     single_source_types = {str(x) for x in policy.get("single_source_types", ["tool_single_source"])}
     has_single_tool_only = bool(trust_annotations) and all(
         str(a.get("source_type", "")) in single_source_types for a in trust_annotations
@@ -2625,6 +2638,9 @@ def output_guard(
         redaction_applied = safe_response != candidate_response
         decision_reason_codes.append("OG_LEAK_PATTERN_HIT")
         matched_rules.append("leak_patterns")
+        if extended_output_matched:
+            matched_rules.extend(extended_output_matched)
+            decision_reason_codes.append("OG_EXTENDED_RULE_HIT")
         if bool(policy.get("block_on_highly_sensitive_leak", True)) and sensitivity_state == "highly_sensitive":
             decision = "block"
             decision_reason_codes.append("OG_HIGHLY_SENSITIVE_BLOCK")
@@ -2821,7 +2837,7 @@ def main() -> None:
         import sys
         sys.exit(1)
 
-    events_sink: Optional[Path] = events_log if args.log_layout == "legacy" else None
+    events_sink: Optional[Path] = events_log  # all log_layout modes write to JSONL event stream
     turn_dir = turns_dir / make_turn_dir_name(turn_id)
     turn_input_path = turn_dir / "input.json"
     turn_result_path = turn_dir / "result.json"
@@ -2890,8 +2906,11 @@ def main() -> None:
 
         state_path = state_dir / f"{session_id}.json"
         prev_state = "normal"
+        conv_history: List[Dict[str, Any]] = []
         if state_path.exists():
-            prev_state = normalize_state(str(load_json(state_path).get("sensitivity_state", "normal")))
+            _prev = load_json(state_path)
+            prev_state = normalize_state(str(_prev.get("sensitivity_state", "normal")))
+            conv_history = list(_prev.get("conversation_history", []))
 
 
         sens = infer_sensitivity(user_prompt, runtime_events_list, prev_state, policy)
@@ -2923,13 +2942,14 @@ def main() -> None:
                 "output_decision": "block"
             }
             # Empty predictive report for blocked case
-            predictive_report = {
+            predictive_report_raw = {
                 "overall_risk_level": "none",
                 "predicted_risks": [],
                 "top_concerns": [],
                 "recommended_actions": [],
                 "confidence_summary": 0.0,
             }
+            predictive_report = predictive_report_raw
         else:
             # Normal flow for non-blocked cases
             runtime = runtime_decision(runtime_events_list, sources_list, policy)
@@ -2939,13 +2959,7 @@ def main() -> None:
             predictive_report_raw = {"overall_risk_level": "none", "predicted_risks": [], "top_concerns": [], "recommended_actions": [], "confidence_summary": 0.0}
             if PREDICTIVE_ANALYSIS_AVAILABLE and preflight["preflight_decision"] != "block":
                 try:
-                    # Load conversation history for grooming detection (if available)
-                    conv_history = []
-                    if state_path.exists():
-                        prev_data = load_json(state_path)
-                        if "conversation_history" in prev_data:
-                            conv_history = prev_data["conversation_history"]
-
+                    # conv_history already loaded from state_path above
                     predictive_report_result = predict_risks(
                         user_prompt=user_prompt,
                         planned_actions=planned_actions,
@@ -3106,7 +3120,21 @@ def main() -> None:
             {"duration_ms": duration_ms},
         )
 
-        save_json(state_path, {"session_id": session_id, "sensitivity_state": preflight["sensitivity_state"]})
+        _MAX_CONV_HISTORY = 20
+        conv_history.append({
+            "turn_id": turn_id,
+            "ts": now_iso(),
+            "user_prompt": user_prompt[:200],
+            "planned_actions": planned_actions[:10],
+            "final_action": final_action,
+            "sensitivity_state": preflight["sensitivity_state"],
+        })
+        conv_history = conv_history[-_MAX_CONV_HISTORY:]
+        save_json(state_path, {
+            "session_id": session_id,
+            "sensitivity_state": preflight["sensitivity_state"],
+            "conversation_history": conv_history,
+        })
 
         summary = {
             "session_id": session_id,

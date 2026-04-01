@@ -25,6 +25,32 @@ SentrySkills protects AI agents from:
 
 ## 📥 Installation
 
+### Claude Code (Recommended)
+
+```bash
+git clone https://github.com/AI45Lab/SentrySkills.git ~/SentrySkills
+```
+
+Configure PreToolUse hook in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash|Write|Edit|NotebookEdit|WebFetch|WebSearch",
+      "hooks": [{
+        "type": "command",
+        "command": "python \"/path/to/SentrySkills/shared/scripts/claude_code_hook.py\""
+      }]
+    }]
+  }
+}
+```
+
+Restart IDE and you're protected!
+
+📖 **[Detailed guide →](install/claude_code_install.md)**
+
 ### OpenClaw
 
 ```bash
@@ -83,71 +109,76 @@ sentry-skills/
 
 ## 🔄 Skill Package Execution Flow
 
-SentrySkills is a **multi-skill orchestration package** that executes in a specific sequence:
+SentrySkills uses a **two-path execution model** — fast pre-assessment on every task, full pipeline only when needed:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  1. using-sentryskills (Entry Point)                        │
 │     ├─ Triggered automatically via AGENTS.md                │
-│     ├─ Prepares input JSON with user prompt + actions       │
-│     └─ Calls orchestrator                                   │
-├─────────────────────────────────────────────────────────────┤
-│  2. sentryskills-orchestrator (Coordination)                │
-│     ├─ Manages execution sequence                           │
-│     ├─ Aggregates results from all stages                   │
-│     └─ Makes final allow/downgrade/block decision           │
-├─────────────────────────────────────────────────────────────┤
+│     ├─ Fast Pre-Assessment: scans prompt + planned_actions  │
+│     └─ Routes to HIGH path or LOW path                      │
+├──────────────────┬──────────────────────────────────────────┤
+│  2a. HIGH Path   │  2b. LOW Path                           │
+│  (synchronous,   │  (non-blocking)                         │
+│   blocking)      │                                         │
+│  ├─ Full pipeline│  ├─ Main agent proceeds immediately      │
+│  │  runs in      │  ├─ Host framework spawns subagent       │
+│  │  current proc │  │   for full pipeline in parallel      │
+│  └─ Result       │  └─ Result written to JSONL,            │
+│     controls     │     checked at start of next turn       │
+│     this turn    │                                         │
+├──────────────────┴──────────────────────────────────────────┤
 │  3. sentryskills-preflight (Pre-Execution)                  │
-│     ├─ BEFORE any action is taken                           │
 │     ├─ Analyzes user prompt for malicious intent            │
 │     ├─ Checks planned actions against detection rules       │
-│     └─ Returns: block/allow with matched threats            │
+│     └─ Returns: allow / downgrade / block                   │
 ├─────────────────────────────────────────────────────────────┤
 │  4. sentryskills-runtime (During Execution)                 │
-│     ├─ WHILE agent executes commands/tool calls             │
 │     ├─ Monitors runtime events (file ops, network calls)    │
-│     ├─ Detects behavioral anomalies                         │
-│     └─ Returns: continue/alert/abort                        │
+│     ├─ Detects behavioral anomalies and goal drift          │
+│     └─ Returns: continue / downgrade / stop                 │
 ├─────────────────────────────────────────────────────────────┤
 │  5. sentryskills-output (Post-Execution)                    │
-│     ├─ BEFORE agent outputs response                        │
 │     ├─ Scans response for sensitive data                    │
 │     ├─ Redacts secrets, credentials, private keys           │
-│     └─ Returns: safe/redacted response                      │
+│     └─ Returns: allow / downgrade / block                   │
 ├─────────────────────────────────────────────────────────────┤
-│  6. Orchestrator Final Decision                             │
+│  6. sentryskills-orchestrator (Final Decision)              │
 │     ├─ Compiles all stage results                           │
 │     ├─ Applies policy profile (balanced/strict/permissive)  │
-│     └─ Outputs final action + trace ID                      │
+│     └─ Outputs final_action + trace ID + self_guard_path    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Decision Flow
 
 ```
-Preflight BLOCK → → → → → → → → → → → → → → → → → → → ┐
-       ↓                                              │
-      ALLOW                                           │
-       ↓                                              │
-Runtime CONTINUE ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←┘
-       ↓
-    ALERT/ABORT → BLOCK
-       ↓
-      CONTINUE
-       ↓
-Output REDACTED → Safe response
-       ↓
-     CLEAN
-       ↓
-   Final Decision (allow/downgrade/block)
+Every task → Fast Pre-Assessment (prompt + planned_actions)
+                      ↓
+             HIGH risk signals?
+            ┌─────────┴──────────┐
+           YES                   NO
+            ↓                    ↓
+     Full pipeline          Proceed immediately
+     (blocking,             + subagent runs pipeline
+      current process)        in parallel → JSONL log
+            ↓                    ↓
+     Preflight BLOCK ──────────────────────→ block
+            ↓ allow
+     Runtime STOP ───────────────────────→ block
+            ↓ continue
+     Output BLOCK/DOWNGRADE ─────────────→ block / downgrade
+            ↓ allow
+     Final Decision: allow / downgrade / block
+                 + self_guard_path: synchronous | async-subagent
 ```
 
 ### Key Points
 
-- **Sequential execution**: Each stage must pass before the next begins
-- **Early termination**: Any BLOCK decision stops execution immediately
-- **Cumulative evidence**: All detections contribute to final decision
-- **Traceability**: Every stage emits events with shared trace ID
+- **Fast path**: LOW-risk tasks proceed with zero latency; subagent monitors in parallel
+- **Safe path**: HIGH-risk tasks block until full pipeline completes
+- **Early termination**: Any BLOCK in the HIGH path stops immediately
+- **Traceability**: Every stage emits events with shared trace ID; `self_guard_path` identifies which mode ran
 
 ## 📈 Performance
 

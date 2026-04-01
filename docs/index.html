@@ -373,12 +373,64 @@
   </div>
 </section>
 
+<!-- ABOUT / OVERVIEW -->
+<section style="background:var(--bg);border-top:1px solid var(--border);">
+  <div class="container">
+    <div class="section-tag">Overview</div>
+    <h2 data-i18n="about.title">What is SentrySkills?</h2>
+    <p class="section-sub" data-i18n="about.sub">A comprehensive security framework that empowers AI agents to protect themselves—no external guardrails needed.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:2rem;margin-top:3rem;">
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:.8rem;" data-i18n="about.problem.title">The Problem</h3>
+        <p style="font-size:.95rem;color:var(--text2);line-height:1.7;" data-i18n="about.problem.desc">
+          AI agents are powerful but vulnerable. They can be manipulated into executing malicious commands, leaking sensitive data, or performing harmful actions. Traditional security approaches rely on external filters and firewalls—but these break when the agent itself is compromised.
+        </p>
+      </div>
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:.8rem;" data-i18n="about.solution.title">The Solution</h3>
+        <p style="font-size:.95rem;color:var(--text2);line-height:1.7;" data-i18n="about.solution.desc">
+          SentrySkills teaches agents <strong>self-guarding behavior</strong>. Security is encoded directly into the agent's decision-making process through SKILL.md and AGENTS.md. The agent understands risks and protects itself—no external supervision required.
+        </p>
+      </div>
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:.8rem;" data-i18n="about.why.title">Why It Matters</h3>
+        <p style="font-size:.95rem;color:var(--text2);line-height:1.7;" data-i18n="about.why.desc">
+          As AI agents become more autonomous and capable, they need equally sophisticated self-defense capabilities. SentrySkills provides enterprise-grade security that scales with your agents—whether they're running code, managing systems, or handling sensitive data.
+        </p>
+      </div>
+    </div>
+
+    <div style="margin-top:4rem;padding:2rem;background:var(--bg2);border-radius:12px;border:1px solid var(--border);">
+      <h3 style="font-size:1rem;font-weight:700;margin-bottom:1rem;" data-i18n="about.use.title">Who Should Use SentrySkills?</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1.5rem;">
+        <div>
+          <div style="font-weight:700;margin-bottom:.4rem;" data-i18n="about.use.1.title">🏢 Enterprise Teams</div>
+          <div style="font-size:.85rem;color:var(--text2);" data-i18n="about.use.1.desc">Deploy AI agents with confidence in production environments</div>
+        </div>
+        <div>
+          <div style="font-weight:700;margin-bottom:.4rem;" data-i18n="about.use.2.title">🔒 Security Engineers</div>
+          <div style="font-size:.85rem;color:var(--text2);" data-i18n="about.use.2.desc">Implement defense-in-depth for autonomous systems</div>
+        </div>
+        <div>
+          <div style="font-weight:700;margin-bottom:.4rem;" data-i18n="about.use.3.title">👩‍💻 Developers</div>
+          <div style="font-size:.85rem;color:var(--text2);" data-i18n="about.use.3.desc">Add safety guardrails to AI-powered tools and workflows</div>
+        </div>
+        <div>
+          <div style="font-weight:700;margin-bottom:.4rem;" data-i18n="about.use.4.title">🏗️ Platform Builders</div>
+          <div style="font-size:.85rem;color:var(--text2);" data-i18n="about.use.4.desc">Ship secure-by-default AI agent platforms</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- HOW IT WORKS -->
 <section class="how-bg" id="how-it-works">
   <div class="container">
     <div class="section-tag" data-i18n="how.tag">Execution Flow</div>
     <h2 data-i18n="how.title">How SentrySkills Works</h2>
-    <p class="section-sub" data-i18n="how.sub">Five skills fire in sequence. Each stage passes or blocks before the next begins. Any block terminates immediately.</p>
+    <p class="section-sub" data-i18n="how.sub">Fast pre-assessment on every task — HIGH-risk triggers the full pipeline synchronously; LOW-risk proceeds immediately while a subagent monitors in parallel.</p>
 
     <div class="flow-grid">
       <div class="flow-item">
@@ -386,7 +438,7 @@
         <div>
           <div class="flow-title" data-i18n="flow.1.title">Entry Point</div>
           <div class="flow-name">using-sentryskills</div>
-          <div class="flow-desc" data-i18n="flow.1.desc">Auto-triggered via AGENTS.md before every response. Prepares the input context — user prompt, planned actions, candidate response — then hands off to the orchestrator.</div>
+          <div class="flow-desc" data-i18n="flow.1.desc">Auto-triggered via AGENTS.md on every task. Runs fast pre-assessment on user prompt and planned actions. Routes to HIGH path (synchronous blocking pipeline) or LOW path (proceed immediately + parallel subagent).</div>
         </div>
       </div>
       <div class="flow-item">
@@ -394,7 +446,7 @@
         <div>
           <div class="flow-title" data-i18n="flow.2.title">Orchestration</div>
           <div class="flow-name">sentryskills-orchestrator</div>
-          <div class="flow-desc" data-i18n="flow.2.desc">Coordinates the full pipeline. Aggregates results from all stages, applies the active policy profile, and produces the final decision with a shared trace ID.</div>
+          <div class="flow-desc" data-i18n="flow.2.desc">Coordinates the full pipeline (preflight → runtime → output guard). Runs synchronously on HIGH path or as a subagent on LOW path. Aggregates results, applies policy profile, and produces the final decision with a shared trace ID.</div>
           <div class="flow-tags">
             <span class="tag allow">allow</span>
             <span class="tag down">downgrade</span>
@@ -560,11 +612,39 @@
     <div class="section-tag" data-i18n="inst.tag">Installation</div>
     <h2 data-i18n="inst.title">Get Started in Minutes</h2>
     <div class="install-tabs">
-      <button class="tab-btn active" onclick="switchTab('openclaw')" data-i18n="inst.tab1">OpenClaw</button>
-      <button class="tab-btn" onclick="switchTab('codex')" data-i18n="inst.tab2">Codex (Legacy)</button>
+      <button class="tab-btn active" onclick="switchTab('claude')" data-i18n="inst.tab1">Claude Code (Recommended)</button>
+      <button class="tab-btn" onclick="switchTab('openclaw')" data-i18n="inst.tab2">OpenClaw</button>
+      <button class="tab-btn" onclick="switchTab('codex')" data-i18n="inst.tab3">Codex (Legacy)</button>
     </div>
 
-    <div class="tab-panel active" id="tab-openclaw">
+    <div class="tab-panel active" id="tab-claude">
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-title">bash</span>
+          <button class="copy-btn" onclick="copyCode('code-claude')" data-i18n="copy">Copy</button>
+        </div>
+        <pre id="code-claude"><span class="c-comment"># 1. Clone SentrySkills</span>
+<span class="c-cmd">git</span> clone https://github.com/AI45Lab/SentrySkills.git ~/SentrySkills
+
+<span class="c-comment"># 2. Configure PreToolUse Hook</span>
+<span class="c-comment"># Edit ~/.claude/settings.json (Linux/Mac) or %USERPROFILE%\.claude\settings.json (Windows)</span>
+{
+  <span class="c-str">"hooks"</span>: {
+    <span class="c-str">"PreToolUse"</span>: [{
+      <span class="c-str">"matcher"</span>: <span class="c-str">"Bash|Write|Edit|NotebookEdit|WebFetch|WebSearch"</span>,
+      <span class="c-str">"hooks"</span>: [{
+        <span class="c-str">"type"</span>: <span class="c-str">"command"</span>,
+        <span class="c-str">"command"</span>: <span class="c-str">"python \"/path/to/SentrySkills/shared/scripts/claude_code_hook.py\""</span>
+      }]
+    }]
+  }
+}
+
+<span class="c-comment"># 3. Restart IDE — protected!</span></pre>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-openclaw">
       <div class="code-block">
         <div class="code-header">
           <span class="code-title">bash</span>
@@ -650,7 +730,7 @@ EOF</span>
     <a href="https://github.com/AI45Lab/SentrySkills/tree/main/install" target="_blank" data-i18n="footer.docs">Documentation</a>
     <a href="https://github.com/AI45Lab/SentrySkills/discussions" target="_blank" data-i18n="footer.discuss">Discussions</a>
   </div>
-  <div>SentrySkills · MIT-0 · <span data-i18n="footer.part">Part of the SafeClaw security series</span></div>
+  <div>SentrySkills · MIT · <span data-i18n="footer.part">Part of the SafeClaw security series</span></div>
 </footer>
 
 <script>
@@ -668,13 +748,30 @@ const i18n = {
     'stat.rules': 'Detection Rules',
     'stat.predictors': 'Risk Predictors',
     'stat.deps': 'External Deps',
+    'about.title': 'What is SentrySkills?',
+    'about.sub': 'A comprehensive security framework that empowers AI agents to protect themselves—no external guardrails needed.',
+    'about.problem.title': 'The Problem',
+    'about.problem.desc': 'AI agents are powerful but vulnerable. They can be manipulated into executing malicious commands, leaking sensitive data, or performing harmful actions. Traditional security approaches rely on external filters and firewalls—but these break when the agent itself is compromised.',
+    'about.solution.title': 'The Solution',
+    'about.solution.desc': 'SentrySkills teaches agents <strong>self-guarding behavior</strong>. Security is encoded directly into the agent\'s decision-making process through SKILL.md and AGENTS.md. The agent understands risks and protects itself—no external supervision required.',
+    'about.why.title': 'Why It Matters',
+    'about.why.desc': 'As AI agents become more autonomous and capable, they need equally sophisticated self-defense capabilities. SentrySkills provides enterprise-grade security that scales with your agents—whether they\'re running code, managing systems, or handling sensitive data.',
+    'about.use.title': 'Who Should Use SentrySkills?',
+    'about.use.1.title': '🏢 Enterprise Teams',
+    'about.use.1.desc': 'Deploy AI agents with confidence in production environments',
+    'about.use.2.title': '🔒 Security Engineers',
+    'about.use.2.desc': 'Implement defense-in-depth for autonomous systems',
+    'about.use.3.title': '👩‍💻 Developers',
+    'about.use.3.desc': 'Add safety guardrails to AI-powered tools and workflows',
+    'about.use.4.title': '🏗️ Platform Builders',
+    'about.use.4.desc': 'Ship secure-by-default AI agent platforms',
     'how.tag': 'Execution Flow',
     'how.title': 'How SentrySkills Works',
-    'how.sub': 'Five skills fire in sequence. Each stage passes or blocks before the next begins. Any block terminates immediately.',
+    'how.sub': 'Fast pre-assessment on every task — HIGH-risk triggers the full pipeline synchronously; LOW-risk proceeds immediately while a subagent monitors in parallel.',
     'flow.1.title': 'Entry Point',
-    'flow.1.desc': 'Auto-triggered via AGENTS.md before every response. Prepares the input context — user prompt, planned actions, candidate response — then hands off to the orchestrator.',
+    'flow.1.desc': 'Auto-triggered via AGENTS.md on every task. Runs fast pre-assessment on user prompt and planned actions. Routes to HIGH path (synchronous blocking pipeline) or LOW path (proceed immediately + parallel subagent).',
     'flow.2.title': 'Orchestration',
-    'flow.2.desc': 'Coordinates the full pipeline. Aggregates results from all stages, applies the active policy profile, and produces the final decision with a shared trace ID.',
+    'flow.2.desc': 'Coordinates the full pipeline (preflight → runtime → output guard). Runs synchronously on HIGH path or as a subagent on LOW path. Aggregates results, applies policy profile, and produces the final decision with a shared trace ID.',
     'flow.3.title': 'Preflight Check',
     'flow.3.desc': 'Runs <strong>before</strong> any action. Analyzes user intent and planned operations against 33+ detection rules. Detects prompt injection, malicious commands, and suspicious patterns.',
     'flow.4.title': 'Runtime Monitor',
@@ -728,8 +825,9 @@ const i18n = {
     'det.pred.6': 'Ambiguous destructive intent',
     'inst.tag': 'Installation',
     'inst.title': 'Get Started in Minutes',
-    'inst.tab1': 'OpenClaw / Claude Code',
-    'inst.tab2': 'Codex (Legacy)',
+    'inst.tab1': 'Claude Code (Recommended)',
+    'inst.tab2': 'OpenClaw',
+    'inst.tab3': 'Codex (Legacy)',
     'copy': 'Copy',
     'pol.tag': 'Configuration',
     'pol.title': 'Policy Profiles',
@@ -759,13 +857,30 @@ const i18n = {
     'stat.rules': '检测规则',
     'stat.predictors': '风险预测器',
     'stat.deps': '外部依赖',
+    'about.title': '什么是 SentrySkills？',
+    'about.sub': '全面的 AI Agent 安全框架，赋予 Agent 自我保护能力——无需外部防护栏。',
+    'about.problem.title': '面临的问题',
+    'about.problem.desc': 'AI Agent 强大但脆弱。它们可能被操纵执行恶意命令、泄露敏感数据或进行有害操作。传统安全方法依赖外部过滤器和防火墙——但当 Agent 本身被攻陷时，这些防护就会失效。',
+    'about.solution.title': '我们的方案',
+    'about.solution.desc': 'SentrySkills 教会 Agent <strong>自防护行为</strong>。安全能力直接编码到 Agent 的决策流程中，通过 SKILL.md 和 AGENTS.md 实现。Agent 理解风险并保护自己——无需外部监督。',
+    'about.why.title': '为什么重要',
+    'about.why.desc': '随着 AI Agent 变得越来越自主和强大，它们需要同样复杂的自我防御能力。SentrySkills 提供企业级安全，与你的 Agent 同步扩展——无论是运行代码、管理系统，还是处理敏感数据。',
+    'about.use.title': '谁应该使用 SentrySkills？',
+    'about.use.1.title': '🏢 企业团队',
+    'about.use.1.desc': '在生产环境中充满信心地部署 AI Agent',
+    'about.use.2.title': '🔒 安全工程师',
+    'about.use.2.desc': '为自主系统实施纵深防御',
+    'about.use.3.title': '👩‍💻 开发者',
+    'about.use.3.desc': '为 AI 驱动的工具和工作流添加安全护栏',
+    'about.use.4.title': '🏗️ 平台构建者',
+    'about.use.4.desc': '构建默认安全的 AI Agent 平台',
     'how.tag': '执行流程',
     'how.title': 'SentrySkills 如何运行',
-    'how.sub': '五个技能依序触发，每个阶段通过或阻断后才进入下一阶段，任何阻断决策立即终止执行。',
+    'how.sub': '每次任务先做快速预判——高危信号触发同步阻塞流水线；低危信号立即放行，同时由子代理并行监控。',
     'flow.1.title': '入口层',
-    'flow.1.desc': '通过 AGENTS.md 在每次响应前自动触发。准备输入上下文——用户意图、计划操作、候选响应——然后交给协调层。',
+    'flow.1.desc': '通过 AGENTS.md 在每次任务时自动触发。对用户意图和计划操作执行快速预判，路由至高危路径（同步阻塞流水线）或低危路径（立即放行 + 并行子代理）。',
     'flow.2.title': '协调层',
-    'flow.2.desc': '协调整个执行管线。聚合各阶段检测结果，应用策略配置，生成带共享 trace ID 的最终决策。',
+    'flow.2.desc': '协调完整流水线（预检 → 运行时 → 输出守卫）。在高危路径中同步运行，或在低危路径中作为子代理运行。聚合各阶段结果，应用策略配置，生成带共享 trace ID 的最终决策。',
     'flow.3.title': '预检层',
     'flow.3.desc': '在任何操作执行<strong>之前</strong>运行。对照 33+ 检测规则分析用户意图和计划操作，检测 Prompt 注入、恶意命令和可疑模式。',
     'flow.4.title': '运行时监控层',
@@ -819,8 +934,9 @@ const i18n = {
     'det.pred.6': '模糊破坏意图',
     'inst.tag': '安装',
     'inst.title': '几分钟内完成部署',
-    'inst.tab1': 'OpenClaw / Claude Code',
-    'inst.tab2': 'Codex（传统方式）',
+    'inst.tab1': 'Claude Code（推荐）',
+    'inst.tab2': 'OpenClaw',
+    'inst.tab3': 'Codex（传统方式）',
     'copy': '复制',
     'pol.tag': '配置',
     'pol.title': '策略配置文件',
