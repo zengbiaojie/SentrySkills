@@ -5,6 +5,61 @@ All notable changes to SentrySkills will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-04-03
+
+### Changed
+
+- **Architecture Simplification**: Removed redundant `sentryskills-orchestrator` component
+  - Orchestration logic now consolidated in `using-sentryskills`
+  - Clearer separation of concerns: entry point + orchestration vs. detection stages
+  - Updated all documentation to reflect streamlined architecture
+
+- **Enhanced Sub-Skill Integration**: Updated `using-sentryskills/SKILL.md`
+  - **Step 2a (HIGH Path)**: Now explicitly documents execution of 3 sub-skills:
+    - `sentryskills-preflight` - Deep pre-execution analysis
+    - `sentryskills-runtime` - Runtime behavior monitoring
+    - `sentryskills-output` - Output leakage detection
+  - **Step 2b (LOW Path)**: Subagent now executes all 3 sub-skills in parallel
+  - **Decision Integration**: Added clear guidance on integrating all 4 decisions (script + 3 sub-skills)
+  - **Response Metadata**: Updated to include all sub-skill decisions
+
+- **Documentation Updates**:
+  - `README.md`: Updated skill package structure (removed orchestrator)
+  - `README.md`: Simplified execution flow diagrams
+  - `README.md`: Updated decision flow to show direct sub-skill calls
+  - Added sub-skill descriptions in README
+
+### Fixed
+
+- **Architecture Clarity**: Eliminated confusion about orchestration layer
+  - Previous: `using-sentryskills` → `sentryskills-orchestrator` → sub-skills (2 hops)
+  - Current: `using-sentryskills` → sub-skills (1 hop, clearer)
+
+### Technical Details
+
+**Simplified Architecture**:
+```
+using-sentryskills (Entry + Orchestration)
+  ├─ Step 0: Fast pre-assessment
+  ├─ Step 1: Run main script
+  └─ Step 2: Execute 3 sub-skills
+       ├─ sentryskills-preflight
+       ├─ sentryskills-runtime
+       └─ sentryskills-output
+```
+
+**Decision Integration**:
+- Main script returns: `final_action`, `preflight_decision`, `runtime_decision`, `output_guard_decision`
+- Each sub-skill returns additional detailed analysis
+- Framework uses most conservative action: `block > downgrade > allow`
+
+**Migration Notes**:
+- No breaking changes to detection logic
+- Purely architectural simplification
+- All existing integrations continue to work
+
+---
+
 ## [0.1.3] - 2026-04-01
 
 ### Added

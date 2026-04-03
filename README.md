@@ -94,11 +94,10 @@ ln -s ~/.codex/sentryskills ~/.agents/skills/sentryskills
 
 ```
 sentry-skills/
-├── using-sentryskills/          # ① Entry point
-├── sentryskills-orchestrator/   # ② Coordination layer
-├── sentryskills-preflight/      # ③ Pre-execution checks
-├── sentryskills-runtime/        # ④ Runtime monitoring
-└── sentryskills-output/         # ⑤ Output validation
+├── using-sentryskills/          # ① Entry point + orchestration
+├── sentryskills-preflight/      # ② Pre-execution checks
+├── sentryskills-runtime/        # ③ Runtime monitoring
+└── sentryskills-output/         # ④ Output validation
 ```
 
 ## ⚙️ Configuration
@@ -113,64 +112,81 @@ SentrySkills uses a **two-path execution model** — fast pre-assessment on ever
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  1. using-sentryskills (Entry Point)                        │
+│  using-sentryskills (Entry Point + Orchestration)          │
 │     ├─ Triggered automatically via AGENTS.md                │
-│     ├─ Fast Pre-Assessment: scans prompt + planned_actions  │
-│     └─ Routes to HIGH path or LOW path                      │
+│     ├─ Step 0: Fast Pre-Assessment (framework LLM)         │
+│     │  └─ Analyzes prompt + planned_actions + history      │
+│     ├─ Step 1: Run main security script                    │
+│     │  └─ self_guard_runtime_hook_template.py              │
+│     └─ Step 2: Route to HIGH or LOW path                   │
 ├──────────────────┬──────────────────────────────────────────┤
 │  2a. HIGH Path   │  2b. LOW Path                           │
-│  (synchronous,   │  (non-blocking)                         │
+│  (synchronous,   │  (asynchronous, non-blocking)            │
 │   blocking)      │                                         │
-│  ├─ Full pipeline│  ├─ Main agent proceeds immediately      │
-│  │  runs in      │  ├─ Host framework spawns subagent       │
-│  │  current proc │  │   for full pipeline in parallel      │
-│  └─ Result       │  └─ Result written to JSONL,            │
-│     controls     │     checked at start of next turn       │
-│     this turn    │                                         │
-├──────────────────┴──────────────────────────────────────────┤
-│  3. sentryskills-preflight (Pre-Execution)                  │
-│     ├─ Analyzes user prompt for malicious intent            │
-│     ├─ Checks planned actions against detection rules       │
-│     └─ Returns: allow / downgrade / block                   │
-├─────────────────────────────────────────────────────────────┤
-│  4. sentryskills-runtime (During Execution)                 │
-│     ├─ Monitors runtime events (file ops, network calls)    │
-│     ├─ Detects behavioral anomalies and goal drift          │
-│     └─ Returns: continue / downgrade / stop                 │
-├─────────────────────────────────────────────────────────────┤
-│  5. sentryskills-output (Post-Execution)                    │
-│     ├─ Scans response for sensitive data                    │
-│     ├─ Redacts secrets, credentials, private keys           │
-│     └─ Returns: allow / downgrade / block                   │
-├─────────────────────────────────────────────────────────────┤
-│  6. sentryskills-orchestrator (Final Decision)              │
-│     ├─ Compiles all stage results                           │
-│     ├─ Applies policy profile (balanced/strict/permissive)  │
-│     └─ Outputs final_action + trace ID + self_guard_path    │
-└─────────────────────────────────────────────────────────────┘
+│  ├─ Execute in   │  ├─ Main agent proceeds immediately      │
+│  │  current      │  ├─ Spawn subagent for full pipeline    │
+│  │  process      │  │   (runs in parallel)                  │
+│  │               │  └─ Check result at next turn            │
+│  ├─ Call 3 sub-skills:                                     │
+│  │  ├─ sentryskills-preflight                              │
+│  │  ├─ sentryskills-runtime                                │
+│  │  └─ sentryskills-output                                 │
+│  │               │                                          │
+│  ├─ Integrate    │  (Subagent runs same pipeline)           │
+│  │  all 4        │     ├─ sentryskills-preflight           │
+│  │  decisions    │     ├─ sentryskills-runtime             │
+│  │               │     └─ sentryskills-output              │
+│  └─ Result       │     ├─ Integrate all 4 decisions        │
+│     controls     │     └─ Write to JSONL log               │
+│     this turn    │                                          │
+└──────────────────┴──────────────────────────────────────────┘
 ```
+
+### Sub-Skill Details
+
+**sentryskills-preflight** (Pre-Execution):
+- Analyzes user prompt for malicious intent
+- Checks planned actions against 33+ detection rules
+- Returns: `preflight_decision`, `matched_rules`, `risk_summary`
+
+**sentryskills-runtime** (During Execution):
+- Monitors runtime events (file ops, network calls)
+- Detects behavioral anomalies and goal drift
+- Returns: `runtime_decision`, `alerts`, `trust_annotations`
+
+**sentryskills-output** (Post-Execution):
+- Scans response for sensitive data
+- Redacts secrets, credentials, private keys
+- Returns: `output_guard_decision`, `leakage_detected`, `safe_response`
 
 ### Decision Flow
 
 ```
-Every task → Fast Pre-Assessment (prompt + planned_actions)
+Every task → Fast Pre-Assessment (Step 0)
                       ↓
              HIGH risk signals?
             ┌─────────┴──────────┐
            YES                   NO
             ↓                    ↓
-     Full pipeline          Proceed immediately
-     (blocking,             + subagent runs pipeline
-      current process)        in parallel → JSONL log
+     Step 1: Run script      Step 1: Run script
+     Step 2a: HIGH Path      Step 2b: LOW Path
+       (synchronous)           (asynchronous)
             ↓                    ↓
-     Preflight BLOCK ──────────────────────→ block
-            ↓ allow
-     Runtime STOP ───────────────────────→ block
-            ↓ continue
-     Output BLOCK/DOWNGRADE ─────────────→ block / downgrade
-            ↓ allow
-     Final Decision: allow / downgrade / block
-                 + self_guard_path: synchronous | async-subagent
+     ┌─────────────────┐     Proceed immediately
+     │ Execute 3 sub-│     + spawn subagent
+     │ skills:        │     ├─ sentryskills-preflight
+     │ ├─ preflight  │     ├─ sentryskills-runtime
+     │ ├─ runtime    │     └─ sentryskills-output
+     │ └─ output     │     └─ Check at next turn
+     └─────────────────┘
+            ↓
+     Integrate all 4 decisions:
+     script + preflight + runtime + output
+            ↓
+     Use most conservative action:
+     block > downgrade > allow
+            ↓
+     Final Decision + self_guard_path
 ```
 
 ### Key Points
