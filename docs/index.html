@@ -444,9 +444,9 @@
       <div class="flow-item">
         <div class="flow-num orch">②</div>
         <div>
-          <div class="flow-title" data-i18n="flow.2.title">Orchestration</div>
-          <div class="flow-name">sentryskills-orchestrator</div>
-          <div class="flow-desc" data-i18n="flow.2.desc">Coordinates the full pipeline (preflight → runtime → output guard). Runs synchronously on HIGH path or as a subagent on LOW path. Aggregates results, applies policy profile, and produces the final decision with a shared trace ID.</div>
+          <div class="flow-title" data-i18n="flow.2.title">Run Security Script</div>
+          <div class="flow-name">self_guard_runtime_hook_template.py</div>
+          <div class="flow-desc" data-i18n="flow.2.desc">Main security pipeline with 33+ detection rules. Runs synchronously on HIGH path or as a subagent on LOW path. Produces initial decision with trace ID, then executes 3 sub-skills for comprehensive analysis.</div>
           <div class="flow-tags">
             <span class="tag allow">allow</span>
             <span class="tag down">downgrade</span>
@@ -626,21 +626,22 @@
         <pre id="code-claude"><span class="c-comment"># 1. Clone SentrySkills</span>
 <span class="c-cmd">git</span> clone https://github.com/AI45Lab/SentrySkills.git ~/SentrySkills
 
-<span class="c-comment"># 2. Configure PreToolUse Hook</span>
-<span class="c-comment"># Edit ~/.claude/settings.json (Linux/Mac) or %USERPROFILE%\.claude\settings.json (Windows)</span>
-{
-  <span class="c-str">"hooks"</span>: {
-    <span class="c-str">"PreToolUse"</span>: [{
-      <span class="c-str">"matcher"</span>: <span class="c-str">"Bash|Write|Edit|NotebookEdit|WebFetch|WebSearch"</span>,
-      <span class="c-str">"hooks"</span>: [{
-        <span class="c-str">"type"</span>: <span class="c-str">"command"</span>,
-        <span class="c-str">"command"</span>: <span class="c-str">"python \"/path/to/SentrySkills/shared/scripts/claude_code_hook.py\""</span>
-      }]
-    }]
-  }
-}
+<span class="c-comment"># 2. Run one-click installer</span>
+<span class="c-cmd">cd</span> SentrySkills
+<span class="c-cmd">python</span> install/install.py
 
-<span class="c-comment"># 3. Restart IDE — protected!</span></pre>
+<span class="c-comment"># 3. Restart IDE — protected!</span>
+<span class="c-comment"># That's it! All 4 security skills are now available.</span></pre>
+      </div>
+      <div style="margin-top:1.5rem;padding:1rem;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:8px;font-size:.9rem;color:var(--text2);">
+        <strong>✨ What gets installed:</strong><br>
+        • 4 security skills (using-sentryskills, sentryskills-preflight, sentryskills-runtime, sentryskills-output)<br>
+        • 33+ detection rules across AI, web, data leaks, and code security<br>
+        • 3 policy profiles (balanced, strict, permissive)<br>
+        • Complete logging and traceability system
+      </div>
+      <div style="margin-top:1rem;font-size:.85rem;color:var(--text3);">
+        <strong>To uninstall anytime:</strong> <code>python install/uninstall.py --force</code>
       </div>
     </div>
 
@@ -770,8 +771,8 @@ const i18n = {
     'how.sub': 'Fast pre-assessment on every task — HIGH-risk triggers the full pipeline synchronously; LOW-risk proceeds immediately while a subagent monitors in parallel.',
     'flow.1.title': 'Entry Point',
     'flow.1.desc': 'Auto-triggered via AGENTS.md on every task. Runs fast pre-assessment on user prompt and planned actions. Routes to HIGH path (synchronous blocking pipeline) or LOW path (proceed immediately + parallel subagent).',
-    'flow.2.title': 'Orchestration',
-    'flow.2.desc': 'Coordinates the full pipeline (preflight → runtime → output guard). Runs synchronously on HIGH path or as a subagent on LOW path. Aggregates results, applies policy profile, and produces the final decision with a shared trace ID.',
+    'flow.2.title': 'Run Security Script',
+    'flow.2.desc': 'Main security pipeline with 33+ detection rules. Runs synchronously on HIGH path or as a subagent on LOW path. Produces initial decision with trace ID, then executes 3 sub-skills for comprehensive analysis.',
     'flow.3.title': 'Preflight Check',
     'flow.3.desc': 'Runs <strong>before</strong> any action. Analyzes user intent and planned operations against 33+ detection rules. Detects prompt injection, malicious commands, and suspicious patterns.',
     'flow.4.title': 'Runtime Monitor',
@@ -879,8 +880,8 @@ const i18n = {
     'how.sub': '每次任务先做快速预判——高危信号触发同步阻塞流水线；低危信号立即放行，同时由子代理并行监控。',
     'flow.1.title': '入口层',
     'flow.1.desc': '通过 AGENTS.md 在每次任务时自动触发。对用户意图和计划操作执行快速预判，路由至高危路径（同步阻塞流水线）或低危路径（立即放行 + 并行子代理）。',
-    'flow.2.title': '协调层',
-    'flow.2.desc': '协调完整流水线（预检 → 运行时 → 输出守卫）。在高危路径中同步运行，或在低危路径中作为子代理运行。聚合各阶段结果，应用策略配置，生成带共享 trace ID 的最终决策。',
+    'flow.2.title': '执行安全脚本',
+    'flow.2.desc': '包含 33+ 检测规则的主安全流水线。在高危路径中同步运行，或在低危路径中作为子代理运行。生成带 trace ID 的初步决策，然后调用 3 个子技能进行全面分析。',
     'flow.3.title': '预检层',
     'flow.3.desc': '在任何操作执行<strong>之前</strong>运行。对照 33+ 检测规则分析用户意图和计划操作，检测 Prompt 注入、恶意命令和可疑模式。',
     'flow.4.title': '运行时监控层',

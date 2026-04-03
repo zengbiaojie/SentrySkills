@@ -27,27 +27,29 @@ SentrySkills protects AI agents from:
 
 ### Claude Code (Recommended)
 
+**Quick Start - One-Command Installation:**
+
 ```bash
+# Clone repository
 git clone https://github.com/AI45Lab/SentrySkills.git ~/SentrySkills
+
+# Run one-click installer
+cd SentrySkills
+python install/install.py
 ```
 
-Configure PreToolUse hook in `~/.claude/settings.json`:
+That's it! Restart your IDE and you're protected. ✅
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash|Write|Edit|NotebookEdit|WebFetch|WebSearch",
-      "hooks": [{
-        "type": "command",
-        "command": "python \"/path/to/SentrySkills/shared/scripts/claude_code_hook.py\""
-      }]
-    }]
-  }
-}
+**What gets installed:**
+- ✅ SentrySkills plugin (4 skills)
+- ✅ Security scripts (19 files)
+- ✅ Detection rules and policies (18 files)
+- ✅ Auto-configuration for Claude Code
+
+**Uninstall anytime:**
+```bash
+python install/uninstall.py --force
 ```
-
-Restart IDE and you're protected!
 
 📖 **[Detailed guide →](install/claude_code_install.md)**
 

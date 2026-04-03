@@ -1,211 +1,213 @@
 # Claude Code Installation Guide
 
-Complete guide to installing SentrySkills with Claude Code CLI/IDE extension.
+Complete guide to installing SentrySkills with Claude Code CLI/IDE extension using the new **one-click plugin system**.
 
-## Requirements
+## 📋 Requirements
 
 - **Claude Code** CLI or IDE extension (VS Code/JetBrains)
 - **Python** 3.8+ installed and in PATH
 - **Git** (for cloning repository)
 
-## Installation
+---
 
-### Step 1: Clone SentrySkills
+## 🚀 Quick Start (Recommended)
+
+### One-Command Installation
 
 ```bash
-# Clone to home directory or preferred location
+# Step 1: Clone SentrySkills
 git clone https://github.com/AI45Lab/SentrySkills.git ~/SentrySkills
 
-# Or on Windows
-git clone https://github.com/AI45Lab/SentrySkills.git %USERPROFILE%\SentrySkills
+# Step 2: Run installer
+cd SentrySkills
+python install/install.py
 ```
 
-### Step 2: Configure PreToolUse Hook
+**That's it!** The installer will:
 
-Create or edit `~/.claude/settings.json` (Linux/Mac) or `%USERPROFILE%\.claude\settings.json` (Windows):
+1. ✅ Create plugin structure with 4 security skills
+2. ✅ Install scripts and detection rules
+3. ✅ Register plugin with Claude Code
+4. ✅ Configure automatic skill loading
+5. ✅ Verify installation
 
-#### Linux/Mac
+**Installation output:**
+```
+✅ Installation completed successfully!
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|Write|Edit|NotebookEdit|WebFetch|WebSearch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"/home/username/SentrySkills/shared/scripts/claude_code_hook.py\""
-          }
-        ]
-      }
-    ]
-  }
-}
+Next steps:
+  1. Restart Claude Code
+  2. Run: claude skill list
+  3. Check if SentrySkills skills appear
 ```
 
-#### Windows
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|Write|Edit|NotebookEdit|WebFetch|WebSearch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"D:/work/ai lab/TrinitySafeSkills/SentrySkills/shared/scripts/claude_code_hook.py\""
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-**Important Notes:**
-- Use **absolute paths** (not relative paths like `./SentrySkills`)
-- Use **forward slashes** `/` or **double backslashes** `\\` on Windows
-- Wrap paths in quotes if they contain spaces
-- Adjust the path to match your actual installation location
-
-### Step 3: Restart IDE
+### Restart IDE
 
 **Important**: Completely close and reopen your IDE (VS Code/JetBrains/etc.)
 
 - ❌ **Don't** just reload the window
 - ✅ **Do** fully restart the IDE application
 
-## Verification
-
-### Test 1: Run a Simple Command
-
-In a new Claude Code session:
-
-```
-echo "hook test"
-```
-
-### Test 2: Check Log Files
-
-In the same session:
+### Verify Installation
 
 ```bash
-ls ~/SentrySkills/sentry_skill_log/hook_result_*.json
+claude skill list
 ```
 
-You should see at least one `hook_result_*.json` file.
+You should see:
+```
+using-sentryskills      - Main entry point
+sentryskills-preflight  - Pre-execution checks
+sentryskills-runtime    - Runtime monitoring
+sentryskills-output     - Output validation
+```
 
-### Test 3: View Hook Result
+---
+
+## 🧹 Uninstallation
 
 ```bash
-cat ~/SentrySkills/sentry_skill_log/hook_result_*.json | tail -1 | python -m json.tool
+cd SentrySkills
+python install/uninstall.py --force
 ```
 
-**Expected output:**
+The uninstaller will:
+- ✅ Remove all 4 skills from Claude Code
+- ✅ Clean up plugin cache
+- ✅ Remove plugin registration
+- ✅ Verify complete removal
 
-```json
-{
-  "session_id": "...",
-  "turn_id": "hook-...",
-  "trace_id": "...",
-  "policy_profile": "balanced",
-  "final_action": "downgrade",
-  "matched_rules": ["action:execute_command"],
-  "decision_chain": {
-    "preflight_decision": "downgrade",
-    "runtime_decision": "continue",
-    "output_decision": "allow"
-  }
-}
-```
+---
 
-If you see this, SentrySkills is working! 🎉
+## 📖 What Gets Installed
 
-## How It Works
-
-### Execution Flow
+### Plugin Structure
 
 ```
-User Request → Tool Call (Bash/Edit/Write/etc.)
-                ↓
-          PreToolUse Hook Triggers
-                ↓
-    ┌───────────────────────────────┐
-    │ claude_code_hook.py           │
-    │  - Reads tool name & input    │
-    │  - Builds security context    │
-    │  - Calls main pipeline        │
-    └───────────────────────────────┘
-                ↓
-    ┌───────────────────────────────┐
-    │ Three-Stage Security Check    │
-    │  1. Preflight                 │
-    │  2. Runtime                   │
-    │  3. Output                    │
-    └───────────────────────────────┘
-                ↓
-          Final Decision
-        - allow (exit code 0)
-        - block (exit code 2)
-                ↓
-          Tool executes or is refused
+~/.claude/
+├── plugins/
+│   └── cache/
+│       └── local-marketplace/
+│           └── sentryskills/
+│               └── 0.1.5/
+│                   ├── .claude-plugin/
+│                   │   └── plugin.json
+│                   ├── skills/
+│                   │   ├── using-sentryskills/
+│                   │   ├── sentryskills-preflight/
+│                   │   ├── sentryskills-runtime/
+│                   │   └── sentryskills-output/
+│                   ├── scripts/
+│                   │   └── self_guard_runtime_hook_template.py
+│                   └── references/
+│                       ├── detection_rules.json
+│                       └── runtime_policy.*.json
+└── skills/
+    ├── using-sentryskills/
+    ├── sentryskills-preflight/
+    ├── sentryskills-runtime/
+    └── sentryskills-output/
 ```
 
-### What Gets Checked
+### Components
 
-**Every tool call is analyzed for:**
+**Skills (4)**:
+- `using-sentryskills` - Entry point, orchestrates security checks
+- `sentryskills-preflight` - Pre-execution threat detection
+- `sentryskills-runtime` - Runtime behavior monitoring
+- `sentryskills-output` - Output data redaction
 
-- **Command injection** (`; curl`, `| nc`, `&& wget`, etc.)
-- **Prompt injection** (jailbreak, ignore instructions, etc.)
-- **Credential leakage** (AWS keys, API tokens, passwords)
-- **Sensitive file access** (`.env`, `/etc/passwd`, config files)
-- **Data exfiltration** patterns
+**Scripts (19)**:
+- Main security pipeline: `self_guard_runtime_hook_template.py`
+- Detection rules engine
+- Policy enforcement
+- Logging and state management
 
-### Exit Codes
+**References (18)**:
+- 33+ detection rules across 4 categories
+- 3 policy profiles (balanced, strict, permissive)
+- Configuration schemas and documentation
 
-- **0**: Allow - tool proceeds normally
-- **2**: Block - tool is refused, agent shows warning
+---
 
-### Logging
+## ⚙️ How It Works
 
-All hook executions are logged to `sentry_skill_log/`:
+### Skill-Based Architecture
+
+SentrySkills now uses Claude Code's **skill system** instead of hooks:
 
 ```
-sentry_skill_log/
-├── hook_result_*.json        # Individual hook results
-├── logs/                      # Detailed execution logs
-└── .self_guard_state/         # Session state tracking
+User Request
+    ↓
+Claude Code loads using-sentryskills skill
+    ↓
+Step 0: Framework Pre-Assessment
+    ↓
+Step 1: Run Security Script
+    ↓
+Step 2: Route to HIGH or LOW Path
+    ↓
+┌──────────────┬──────────────┐
+│  HIGH Path   │  LOW Path    │
+│  (Blocking)  │  (Async)     │
+│              │              │
+│ Execute 3    │ Spawn        │
+│ sub-skills   │ subagent     │
+│              │              │
+│ • preflight  │ • preflight  │
+│ • runtime    │ • runtime    │
+│ • output     │ • output     │
+│              │              │
+│ Block if     │ Proceed +    │
+│ any BLOCK    │ check later  │
+└──────────────┴──────────────┘
+    ↓              ↓
+Final Decision
 ```
 
-## Advanced Configuration
+### Decision Flow
 
-### Project-Specific Settings
-
-For project-level configuration, create `.claude/settings.local.json` in your project root:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash|Write|Edit|NotebookEdit|WebFetch|WebSearch",
-      "hooks": [{
-        "type": "command",
-        "command": "python \"D:/work/ai lab/TrinitySafeSkills/SentrySkills/shared/scripts/claude_code_hook.py\""
-      }]
-    }]
-  }
-}
+```
+Every task → Pre-Assessment
+                 ↓
+         HIGH risk signals?
+        ┌─────────┴──────────┐
+       YES                   NO
+        ↓                    ↓
+  Synchronous          Asynchronous
+  (wait for result)    (proceed immediately)
+        ↓                    ↓
+  Execute sub-skills    Spawn subagent
+  • preflight           • Check next turn
+  • runtime
+  • output
+        ↓
+  Most conservative wins
+  block > downgrade > allow
 ```
 
-This overrides global settings for this project only.
+### Execution Paths
+
+**HIGH Path (Synchronous)**:
+- Triggers when: Framework detects HIGH risk signals
+- Behavior: Blocks until full security pipeline completes
+- Use case: Dangerous operations (file deletion, network calls, credential access)
+
+**LOW Path (Asynchronous)**:
+- Triggers when: Framework detects LOW risk signals
+- Behavior: Proceeds immediately, monitors in background
+- Use case: Safe operations (read files, list directories)
+
+---
+
+## 🔧 Advanced Configuration
 
 ### Policy Profiles
 
-Change security level by modifying `SENTRYSKILLS_PROFILE` environment variable:
+Change security level by modifying environment variable:
 
 ```json
+// ~/.claude/settings.json
 {
   "env": {
     "SENTRYSKILLS_PROFILE": "strict"
@@ -213,175 +215,175 @@ Change security level by modifying `SENTRYSKILLS_PROFILE` environment variable:
 }
 ```
 
-Available profiles:
-- **balanced** (default) - Standard security
-- **strict** - Maximum security, more false positives
-- **permissive** - Minimal interference
+**Available profiles:**
+- `balanced` (default) - Standard security
+- `strict` - Maximum security, more false positives
+- `permissive` - Minimal interference
 
-### Custom Matcher Patterns
+### Project-Level Configuration
 
-Only hook specific tools:
+For project-specific settings, create `.claude/settings.local.json`:
 
 ```json
 {
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash|Write",  // Only Bash and Write
-      "hooks": [{
-        "type": "command",
-        "command": "python \"/path/to/claude_code_hook.py\""
-      }]
-    }]
+  "env": {
+    "SENTRYSKILLS_PROFILE": "permissive"
   }
 }
 ```
 
-## Troubleshooting
+### Skill Invocation (Manual)
 
-### Hook Not Triggering
+You can manually invoke SentrySkills skills:
 
-**Symptoms**: Commands execute without protection, no log files created.
+```
+/sentryskills-preflight
+```
+
+This runs preflight checks on the current context.
+
+---
+
+## 🐛 Troubleshooting
+
+### Skills Not Visible
+
+**Symptoms**: `claude skill list` doesn't show SentrySkills skills.
 
 **Solutions**:
 
-1. **Use absolute paths** in settings.json
-   ```json
-   // ❌ Wrong
-   "command": "python ./shared/scripts/claude_code_hook.py"
-
-   // ✅ Correct
-   "command": "python \"/home/user/SentrySkills/shared/scripts/claude_code_hook.py\""
+1. **Verify installation**:
+   ```bash
+   ls ~/.claude/skills/
    ```
+   Should show: using-sentryskills, sentryskills-preflight, sentryskills-runtime, sentryskills-output
 
-2. **Completely restart IDE**
-   - VS Code: File → Exit (not just reload window)
+2. **Restart IDE completely**:
+   - VS Code: File → Exit (not reload)
    - JetBrains: File → Exit
    - Terminal: Start new session
 
-3. **Verify Python is in PATH**
+3. **Check plugin status**:
    ```bash
-   which python  # Linux/Mac
-   where python  # Windows
+   claude plugin list
    ```
+   Look for: `sentryskills@local-marketplace`
 
-   If not found, use absolute path:
-   ```json
-   "command": "C:\\Python314\\python.exe \"D:/SentrySkills/...\""
-   ```
+### Installation Fails
 
-### Permission Denied
-
-**Symptoms**: Hook script fails with permission error.
-
-**Solution**: Add to `permissions.allow` in settings.json:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(python \"/path/to/SentrySkills/shared/scripts/claude_code_hook.py\")"
-    ]
-  }
-}
-```
-
-### Path Issues on Windows
-
-**Symptoms**: Hook can't find script due to path/escape issues.
+**Symptoms**: Installer shows errors during execution.
 
 **Solutions**:
 
-1. **Use forward slashes**:
-   ```json
-   "command": "python \"D:/work/ai lab/TrinitySafeSkills/SentrySkills/...\""
-   ```
-
-2. **Or double backslashes**:
-   ```json
-   "command": "python \"D:\\\\work\\\\ai lab\\\\TrinitySafeSkills\\\\SentrySkills\\\\...\""
-   ```
-
-3. **Quote paths with spaces**:
-   ```json
-   "command": "python \"D:/work/ai lab/TrinitySafeSkills/...\""
-   ```
-
-### Hook Too Slow
-
-**Symptoms**: Noticeable delay before every command.
-
-**Analysis**: Normal latency is 30-100ms per check.
-
-**Solutions**:
-
-1. **Check detection rules count** (should be ~24 rules enabled)
+1. **Check Python version**:
    ```bash
-   python -c "import json; r=json.load(open('shared/scripts/detection_rules.json')); print(f'Enabled: {sum(1 for cat in r[\"rule_categories\"].values() for rule in cat[\"rules\"] if rule.get(\"enabled\"))}')"
+   python --version  # Should be 3.8+
    ```
 
-2. **Use SSD** for SentrySkills directory (faster I/O)
-
-3. **Disable debug logging**:
-   ```json
-   {
-     "debug": ""
-   }
+2. **Run with verbose output**:
+   ```bash
+   python install/install.py 2>&1 | tee install.log
    ```
 
-### Test Hook Manually
+3. **Clean partial installation**:
+   ```bash
+   python install/uninstall.py --force
+   python install/install.py
+   ```
 
-Run hook script directly to debug:
+### Uninstallation Incomplete
+
+**Symptoms**: Some files remain after uninstall.
+
+**Solution**: Manually clean up:
 
 ```bash
-# Linux/Mac
-echo '{"tool_name":"Bash","tool_input":{"command":"echo test"}}' | \
-  python ~/SentrySkills/shared/scripts/claude_code_hook.py
+# Remove skills
+rm -rf ~/.claude/skills/using-sentryskills
+rm -rf ~/.claude/skills/sentryskills-*
 
-# Windows
-echo {"tool_name:Bash,tool_input:{command:test}} | python D:\SentrySkills\shared\scripts\claude_code_hook.py
+# Remove plugin cache
+rm -rf ~/.claude/plugins/cache/local-marketplace
+
+# Clean installed_plugins.json (edit manually)
+# Remove sentryskills@local-marketplace entry
 ```
 
-**Expected output**: Exit code 0 (allow) or 2 (block), with stderr message.
+### Plugin Shows "failed to load"
 
-## Performance Impact
+**Symptoms**: `claude plugin list` shows "failed to load" error.
+
+**Explanation**: This is **normal and expected**. The local marketplace is not registered to avoid system errors, but the plugin still works correctly.
+
+**Verification**: Skills should still be visible and functional:
+```bash
+claude skill list
+```
+
+---
+
+## 📊 Performance Impact
 
 | Metric | Value |
 |--------|-------|
-| Latency per check | 30-100ms |
+| Installation time | ~5 seconds |
+| Disk usage | ~5 MB |
 | Memory overhead | <50MB |
+| Latency per check | 30-100ms |
 | CPU usage | Minimal |
- Disk I/O | ~5KB per check |
 
-For typical usage (10-100 tool calls per session), total overhead is <1 second.
+---
 
-## Uninstallation
-
-To remove SentrySkills:
-
-1. **Remove hook from settings.json**:
-   ```json
-   {
-     "hooks": {
-       // Remove PreToolUse section
-     }
-   }
-   ```
-
-2. **Delete SentrySkills directory**:
-   ```bash
-   rm -rf ~/SentrySkills
-   ```
-
-3. **Restart IDE**
-
-4. **Clean up logs** (optional):
-   ```bash
-   rm -rf ~/SentrySkills/sentry_skill_log/
-   ```
-
-## Next Steps
+## 📚 Next Steps
 
 - 📖 [Main README](../README.md) - Project overview
-- 🔧 [Configuration Guide](codex_install.md) - Advanced options
+- 🛡️ [Detection Rules](../shared/references/detection_rules.md) - Rule documentation
+- ⚙️ [Policy Profiles](../shared/references/policy_profiles.md) - Configuration options
 - 🐛 [Report Issues](https://github.com/AI45Lab/SentrySkills/issues)
 - 💬 [Discussions](https://github.com/AI45Lab/SentrySkills/discussions)
+
+---
+
+## ❓ FAQ
+
+**Q: Can I use SentrySkills with other frameworks?**
+
+A: Yes! SentrySkills supports:
+- **Claude Code** (this guide) - Plugin system
+- **OpenClaw** - See [openclaw_install.md](openclaw_install.md)
+- **Codex** - See [codex_install.md](codex_install.md)
+
+**Q: Does SentrySkills call external APIs?**
+
+A: No. All processing is local, no network calls, no LLM calls.
+
+**Q: Can I customize detection rules?**
+
+A: Yes. Edit `shared/scripts/detection_rules.json` and reinstall.
+
+**Q: How do I update SentrySkills?**
+
+A:
+```bash
+cd ~/SentrySkills
+git pull
+python install/uninstall.py --force
+python install/install.py
+```
+
+**Q: Where are logs stored?**
+
+A: In your project directory: `./sentry_skill_log/`
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome!
+
+- Report vulnerabilities privately
+- Submit PRs for new detection patterns
+- Improve documentation and performance
+- Add support for more frameworks
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.

@@ -4,6 +4,7 @@ SentrySkills Claude Code Plugin Uninstaller
 Uninstall script for SentrySkills plugin
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -46,6 +47,19 @@ def get_project_root() -> Path:
     current_file = Path(__file__).resolve()
     return current_file.parent.parent
 
+def get_claude_config_dir() -> Path:
+    """Get Claude Code configuration directory"""
+    home = Path.home()
+    config_dir = home / ".claude"
+
+    if not config_dir.exists():
+        # Try Windows AppData
+        appdata = Path(os.environ.get('APPDATA', ''))
+        if appdata:
+            config_dir = appdata / "Claude" / "claude-code"
+
+    return config_dir
+
 def uninstall_plugin() -> bool:
     """Uninstall the SentrySkills plugin"""
     print_step("Uninstalling plugin...")
@@ -56,19 +70,22 @@ def uninstall_plugin() -> bool:
             ["claude", "plugin", "uninstall", "sentryskills", "--scope", "local"],
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=30
         )
 
         if result.returncode == 0:
             print_success("Plugin uninstalled successfully")
             # Show output
-            for line in result.stdout.strip().split('\n'):
-                if line.strip():
-                    print(f"   {line}")
+            if result.stdout:
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip():
+                        print(f"   {line}")
             return True
         else:
             # Plugin might not be installed, check error
-            stderr = result.stderr.lower()
+            stderr = result.stderr.lower() if result.stderr else ""
             if "not found" in stderr or "not installed" in stderr:
                 print_info("Plugin was not installed")
                 return True
@@ -84,6 +101,101 @@ def uninstall_plugin() -> bool:
         return False
     except Exception as e:
         print_error(f"Failed to uninstall: {e}")
+        return False
+
+def cleanup_skills() -> bool:
+    """Remove SentrySkills skills from .claude/skills directory"""
+    print_step("Cleaning up skills directory...")
+
+    try:
+        config_dir = get_claude_config_dir()
+        skills_dir = config_dir / "skills"
+
+        if not skills_dir.exists():
+            print_info("Skills directory does not exist")
+            return True
+
+        # SentrySkills skill names
+        skill_names = [
+            "using-sentryskills",
+            "sentryskills-preflight",
+            "sentryskills-runtime",
+            "sentryskills-output"
+        ]
+
+        removed_count = 0
+        for skill_name in skill_names:
+            skill_path = skills_dir / skill_name
+            if skill_path.exists():
+                shutil.rmtree(skill_path)
+                print_success(f"  Removed: {skill_name}")
+                removed_count += 1
+
+        if removed_count > 0:
+            print_success(f"Removed {removed_count} skill(s)")
+        else:
+            print_info("No SentrySkills skills found")
+
+        return True
+
+    except Exception as e:
+        print_error(f"Failed to cleanup skills: {e}")
+        return False
+
+def cleanup_installed_plugins() -> bool:
+    """Remove SentrySkills entry from installed_plugins.json"""
+    print_step("Cleaning up installed_plugins.json...")
+
+    try:
+        config_dir = get_claude_config_dir()
+        installed_json = config_dir / "plugins" / "installed_plugins.json"
+
+        if not installed_json.exists():
+            print_info("installed_plugins.json does not exist")
+            return True
+
+        # Read existing plugins
+        with open(installed_json, 'r', encoding='utf-8') as f:
+            installed = json.load(f)
+
+        # Remove sentryskills entry if present
+        if "sentryskills@local-marketplace" in installed["plugins"]:
+            del installed["plugins"]["sentryskills@local-marketplace"]
+
+            # Write back
+            with open(installed_json, 'w', encoding='utf-8') as f:
+                json.dump(installed, f, indent=2, ensure_ascii=False)
+
+            print_success("Removed sentryskills from installed_plugins.json")
+        else:
+            print_info("sentryskills not found in installed_plugins.json")
+
+        return True
+
+    except Exception as e:
+        print_error(f"Failed to cleanup installed_plugins.json: {e}")
+        return False
+
+def cleanup_plugin_cache() -> bool:
+    """Remove SentrySkills plugin cache directory"""
+    print_step("Cleaning up plugin cache...")
+
+    try:
+        config_dir = get_claude_config_dir()
+        plugin_cache = config_dir / "plugins" / "cache" / "local-marketplace" / "sentryskills"
+
+        if not plugin_cache.exists():
+            print_info("Plugin cache does not exist")
+            return True
+
+        # Remove entire sentryskills cache directory
+        shutil.rmtree(plugin_cache)
+        print_success(f"Removed plugin cache: {plugin_cache}")
+
+        return True
+
+    except Exception as e:
+        print_error(f"Failed to cleanup plugin cache: {e}")
         return False
 
 def cleanup_plugin_directory(plugin_dir: Path, force: bool = False) -> bool:
@@ -119,6 +231,8 @@ def verify_uninstallation() -> bool:
             ["claude", "plugin", "list"],
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=30
         )
 
@@ -198,7 +312,19 @@ def main():
         print()
         print_info(f"Keeping plugin directory: {plugin_dir}")
 
-    # Step 3: Verify uninstallation
+    # Step 3: Clean up skills directory
+    print()
+    cleanup_skills()
+
+    # Step 4: Clean up installed_plugins.json
+    print()
+    cleanup_installed_plugins()
+
+    # Step 5: Clean up plugin cache
+    print()
+    cleanup_plugin_cache()
+
+    # Step 6: Verify uninstallation
     print()
     if verify_uninstallation():
         print(f"\n{Colors.GREEN}{Colors.BOLD}{'='*60}{Colors.RESET}")
