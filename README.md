@@ -63,24 +63,30 @@ npm i -g clawhub
 clawhub install sentryskills
 
 # Enable auto-protection
-cat > ~/.codex/AGENTS.md << 'EOF'
-# Security: SentrySkills runs automatically
-Before EVERY response, run:
-python ./skills/sentry-skills/shared/scripts/self_guard_runtime_hook_template.py input.json --policy-profile balanced --out result.json
-EOF
+curl -o ~/.openclaw/workspace/AGENTS.md https://raw.githubusercontent.com/AI45Lab/SentrySkills/main/AGENTS.template.md
 
 # Restart OpenClaw
 ```
+
+⚠️ **Note**: OpenClaw relies on AGENTS.md prompts (not system-enforced). For production, use Claude Code.
 
 📖 **[Detailed guide →](install/openclaw_install.md)**
 
 ### Codex (Legacy)
 
 ```bash
+# Clone and install
 git clone https://github.com/AI45Lab/SentrySkills.git ~/.codex/sentryskills
 mkdir -p ~/.agents/skills
 ln -s ~/.codex/sentryskills ~/.agents/skills/sentryskills
+
+# Enable auto-protection
+cp ~/.codex/sentryskills/AGENTS.template.md ~/.codex/AGENTS.md
+
+# Restart Codex
 ```
+
+⚠️ **Note**: Codex relies on AGENTS.md prompts (not system-enforced). For production, use Claude Code.
 
 📖 **[Detailed guide →](install/codex_install.md)**
 

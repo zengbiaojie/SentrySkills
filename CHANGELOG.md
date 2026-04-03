@@ -5,6 +5,77 @@ All notable changes to SentrySkills will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-04-03
+
+### Added
+
+- **AGENTS.template.md**: Simplified template file for Codex/OpenClaw automatic execution
+  - Located in project root directory
+  - Contains only essential execution instructions (12 lines)
+  - Replaces embedded AGENTS.md content in installation documentation
+- **Enhanced Installation Documentation**:
+  - `install/codex_install.md`: Added warning box explaining skill installation ≠ automatic execution
+  - `install/codex_install.md`: Added AGENTS.md path location section with verification steps
+  - `install/openclaw_install.md`: Added warning box explaining skill installation ≠ automatic execution
+  - `install/openclaw_install.md`: Added AGENTS.md path location section with verification steps
+  - `install/openclaw_install.md`: Corrected AGENTS.md path to `~/.openclaw/workspace/AGENTS.md`
+
+### Changed
+
+- **Simplified AGENTS.md Configuration**:
+  - Removed all explanatory text from template (moved to installation docs)
+  - Template now contains only core execution instructions
+  - Installation docs reference template instead of embedding content
+  - Users can download template via curl or create manually with provided commands
+- **Documentation Updates**:
+  - `README.md`: Updated OpenClaw installation to use `curl` command
+  - `README.md`: Updated Codex installation to use `cp` command
+  - `README.md`: Added warnings about non-system enforcement for Codex/OpenClaw
+  - `docs/index.html`: Updated installation tabs for OpenClaw and Codex
+  - `docs/index.html`: Added warning boxes about prompt-based enforcement
+
+### Fixed
+
+- **Incorrect AGENTS.md Path**: Fixed OpenClaw documentation
+  - Changed from `~/.codex/AGENTS.md` to `~/.openclaw/workspace/AGENTS.md`
+  - Updated all path references in install/openclaw_install.md
+  - Updated Linux/Mac/Windows path examples
+  - Updated verification commands
+- **Documentation Clarity**: Clarified framework enforcement differences
+  - Claude Code: System-level hooks (truly enforced)
+  - Codex/OpenClaw: AGENTS.md prompts (LLM-dependent, not enforced)
+
+### Technical Details
+
+**AGENTS.template.md Structure**:
+```markdown
+# SentrySkills - Automatic Security Protection
+
+Before EVERY response:
+
+1. Run the SentrySkills pre-flight check:
+   /using-sentryskills
+
+2. Based on the result:
+   - If blocked: Refuse the request and explain why
+   - If allowed with warnings: Include warnings in response
+   - If allowed: Proceed normally
+
+3. Include in your response:
+   - sentryskills_decision: <block|allow|downgrade>
+   - sentryskills_trace_id: <trace_id_from_result>
+```
+
+**Installation Commands**:
+- **OpenClaw**: `curl -o ~/.openclaw/workspace/AGENTS.md https://raw.githubusercontent.com/AI45Lab/SentrySkills/main/AGENTS.template.md`
+- **Codex**: `cp ~/.codex/sentryskills/AGENTS.template.md ~/.codex/AGENTS.md`
+
+**Path Locations**:
+- Codex: `~/.codex/AGENTS.md`
+- OpenClaw: `~/.openclaw/workspace/AGENTS.md`
+
+---
+
 ## [0.1.5] - 2026-04-03
 
 ### Added

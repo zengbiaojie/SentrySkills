@@ -658,14 +658,13 @@
 <span class="c-cmd">clawhub</span> install sentryskills
 
 <span class="c-comment"># 3. Enable auto-protection</span>
-<span class="c-cmd">cat</span> &gt; ~/.codex/AGENTS.md <span class="c-str">&lt;&lt; 'EOF'
-# Security: SentrySkills runs automatically
-Before EVERY response, run:
-python ./skills/sentry-skills/shared/scripts/self_guard_runtime_hook_template.py \
-  input.json --policy-profile balanced --out result.json
-EOF</span>
+<span class="c-cmd">curl</span> <span class="c-flag">-o</span> ~/.openclaw/workspace/AGENTS.md \
+  https://raw.githubusercontent.com/AI45Lab/SentrySkills/main/AGENTS.template.md
 
 <span class="c-comment"># 4. Restart OpenClaw — protected!</span></pre>
+      </div>
+      <div style="margin-top:1rem;padding:1rem;background:rgba(255,193,7,0.1);border-left:3px solid #ffc107;font-size:.85rem;">
+        <strong>⚠️ Note:</strong> OpenClaw relies on AGENTS.md prompts (not system-enforced). For production, use Claude Code.
       </div>
     </div>
 
@@ -675,21 +674,19 @@ EOF</span>
           <span class="code-title">bash</span>
           <button class="copy-btn" onclick="copyCode('code-codex')" data-i18n="copy">Copy</button>
         </div>
-        <pre id="code-codex"><span class="c-comment"># 1. Clone and symlink</span>
+        <pre id="code-codex"><span class="c-comment"># 1. Clone and install</span>
 <span class="c-cmd">git</span> clone https://github.com/AI45Lab/SentrySkills.git \
   ~/.codex/sentryskills
 <span class="c-cmd">mkdir</span> <span class="c-flag">-p</span> ~/.agents/skills
 <span class="c-cmd">ln</span> <span class="c-flag">-s</span> ~/.codex/sentryskills ~/.agents/skills/sentryskills
 
 <span class="c-comment"># 2. Enable auto-protection</span>
-<span class="c-cmd">cat</span> &gt; ~/.codex/AGENTS.md <span class="c-str">&lt;&lt; 'EOF'
-# Security: SentrySkills runs automatically
-Before EVERY response, run:
-python ~/.codex/sentryskills/shared/scripts/self_guard_runtime_hook_template.py \
-  input.json --policy-profile balanced --out result.json
-EOF</span>
+<span class="c-cmd">cp</span> ~/.codex/sentryskills/AGENTS.template.md ~/.codex/AGENTS.md
 
 <span class="c-comment"># 3. Restart Codex — protected!</span></pre>
+      </div>
+      <div style="margin-top:1rem;padding:1rem;background:rgba(255,193,7,0.1);border-left:3px solid #ffc107;font-size:.85rem;">
+        <strong>⚠️ Note:</strong> Codex relies on AGENTS.md prompts (not system-enforced). For production, use Claude Code.
       </div>
     </div>
   </div>

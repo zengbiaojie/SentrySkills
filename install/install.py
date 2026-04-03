@@ -472,6 +472,24 @@ def verify_installation() -> bool:
         print_info("Files installed but could not verify with Claude Code")
         return True  # Consider as success since files are in place
 
+def cleanup_build_dir(build_dir: Path) -> bool:
+    """Remove temporary build directory after successful installation"""
+    print_step("Cleaning up build directory...")
+
+    try:
+        if not build_dir.exists():
+            print_info(f"Build directory does not exist: {build_dir}")
+            return True
+
+        shutil.rmtree(build_dir)
+        print_success(f"Build directory removed: {build_dir}")
+        return True
+
+    except Exception as e:
+        print_warning(f"Failed to remove build directory: {e}")
+        print_info(f"You can manually remove: {build_dir}")
+        return False  # Don't fail installation for this
+
 def main():
     """Main installation function"""
     parser = argparse.ArgumentParser(
@@ -516,6 +534,10 @@ def main():
         # Step 5: Verify
         print()
         if verify_installation():
+            # Step 6: Clean up build directory
+            print()
+            cleanup_build_dir(build_dir)
+
             print(f"\n{Colors.GREEN}{Colors.BOLD}{'='*60}{Colors.RESET}")
             print(f"{Colors.GREEN}{Colors.BOLD}✅ Installation completed successfully!{Colors.RESET}")
             print(f"{Colors.GREEN}{Colors.BOLD}{'='*60}{Colors.RESET}\n")
@@ -527,6 +549,7 @@ def main():
             sys.exit(0)
         else:
             print_warning("\nVerification completed with warnings")
+            print_info("Build directory preserved for debugging")
             sys.exit(0)
 
     except Exception as e:
