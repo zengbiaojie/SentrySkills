@@ -23,6 +23,7 @@ As mandatory gate before final output to prevent "explanatory answer leakage."
 3. `confidence_level`
 4. `safe_response`
 5. `output_decision` (allow|downgrade|block)
+6. `output_rule_action` and optional `output_model_action`
 
 ## Mandatory Checks
 
@@ -36,6 +37,8 @@ As mandatory gate before final output to prevent "explanatory answer leakage."
 1. Sensitive leakage detected: redact or `block`.
 2. Multi-source verification not completed: `downgrade`, output uncertainty notice.
 3. Multi-source consistent and no sensitive leakage: can `allow`.
+4. Output rules run before output model analysis; model results may tighten but not relax rule decisions.
+5. Prompt-injection phrases in output text are not blocking by themselves unless they create leakage, unsafe reconstruction, or executable dangerous content.
 
 ## Output Template
 

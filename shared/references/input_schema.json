@@ -24,8 +24,25 @@
     "planned_actions": {
       "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string"},
+              "type": {"type": "string"},
+              "name": {"type": "string"},
+              "step": {"type": "string"},
+              "required": {"type": "boolean"},
+              "source": {"type": "string"},
+              "reason": {"type": "string"}
+            },
+            "additionalProperties": true
+          }
+        ]
       },
       "description": "List of planned actions"
     },
@@ -46,14 +63,39 @@
             "type": "string",
             "enum": [
               "tool_call",
+              "skill_invocation",
               "read_file",
               "write_file",
               "delete_file",
+              "batch_modify",
               "execute_command",
+              "network_call",
               "read_secret",
               "read_credential",
               "retry"
             ]
+          },
+          "skill_name": {"type": "string"},
+          "skill_invocation_id": {"type": "string"},
+          "invocation_reason": {"type": "string"},
+          "requested_step": {"type": "string"},
+          "candidate_actions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {"type": "string"},
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {"type": "string"},
+                    "step": {"type": "string"},
+                    "required": {"type": "boolean"},
+                    "reason": {"type": "string"}
+                  },
+                  "additionalProperties": true
+                }
+              ]
+            }
           },
           "name": {"type": "string"},
           "timestamp": {"type": "string", "format": "date-time"},
@@ -65,6 +107,40 @@
         }
       },
       "description": "Runtime events that occurred"
+    },
+    "skill_invocations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill_name"],
+        "properties": {
+          "skill_invocation_id": {"type": "string"},
+          "skill_name": {"type": "string", "minLength": 1},
+          "invocation_reason": {"type": "string"},
+          "requested_step": {"type": "string"},
+          "current_context_summary": {"type": "string"},
+          "candidate_actions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {"type": "string"},
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {"type": "string"},
+                    "step": {"type": "string"},
+                    "required": {"type": "boolean"},
+                    "reason": {"type": "string"}
+                  },
+                  "additionalProperties": true
+                }
+              ]
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "description": "Dynamic skill invocation gates requested during runtime before a non-SentrySkills skill executes"
     },
     "sources": {
       "type": "array",
@@ -107,6 +183,108 @@
       "type": "string",
       "maxLength": 1000000,
       "description": "Candidate response text to check"
+    },
+    "preflight_model": {
+      "type": "object",
+      "description": "Optional model result for the preflight stage after preflight rules run",
+      "additionalProperties": true
+    },
+    "runtime_model": {
+      "type": "object",
+      "description": "Optional model result for the runtime stage after runtime rules run",
+      "additionalProperties": true
+    },
+    "output_model": {
+      "type": "object",
+      "description": "Optional model result for the output stage after output rules run",
+      "additionalProperties": true
+    },
+    "promotion_context": {
+      "type": "object",
+      "description": "Unified rule promotion context. Online use, evolution, benchmark, shadow traffic, and manual review all use this same context.",
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["online", "evolution", "benchmark", "manual", "shadow"]
+        },
+        "update_mode": {
+          "type": "string",
+          "enum": ["learn", "candidate_only", "read_only"]
+        },
+        "promotion_policy": {
+          "type": "string",
+          "enum": ["conservative", "variant_validated", "shadow_confirmed", "manual_reviewed"]
+        },
+        "source_case_id": {"type": "string"},
+        "source_cases": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "snapshot_request": {"type": "boolean"},
+        "snapshot_label": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "feedback_text": {
+      "type": "string",
+      "description": "Short user feedback such as 'this was attacked', 'do not allow this again', or '刚才被攻击了'. The hook normalizes it into feedback."
+    },
+    "feedback": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Short natural-language feedback. Equivalent to feedback_text."
+        },
+        {
+          "type": "object",
+          "description": "Optional structured label or user feedback that can trigger automatic rule proposal even when the model did not identify the risk.",
+          "properties": {
+            "known_risk": {"type": "boolean"},
+            "attack_success": {"type": "boolean"},
+            "risk_source": {
+              "type": "string",
+              "description": "Source of the label, such as user_feedback, benchmark_label, postmortem, rollback, or manual_review."
+            },
+            "attack_family": {"type": "string"},
+            "failed_guard_stage": {"type": "string"},
+            "why_failed": {"type": "string"},
+            "positive_evidence": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "negative_evidence": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "outcome_signals": {
+      "type": "array",
+      "description": "Optional weak-supervision signals from execution outcome. These can trigger candidate-only rule proposal without requiring a risk label.",
+      "items": {
+        "oneOf": [
+          {"type": "string"},
+          {
+            "type": "object",
+            "properties": {
+              "type": {"type": "string"},
+              "severity": {
+                "type": "string",
+                "enum": ["low", "medium", "high", "critical"]
+              },
+              "reason": {"type": "string"},
+              "evidence": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            },
+            "additionalProperties": true
+          }
+        ]
+      }
     },
     "project_path": {
       "type": "string",

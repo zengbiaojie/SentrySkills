@@ -23,6 +23,8 @@ Provide executable security boundaries before execution to avoid "execute first,
 4. `blocked_actions`
 5. `verification_requirements`
 6. `preflight_decision` (allow|downgrade|block)
+7. `action_gate` with allowed and blocked planned actions
+8. `preflight_rule_action` and optional `preflight_model_action`
 
 ## Checklist
 
@@ -35,8 +37,10 @@ Provide executable security boundaries before execution to avoid "execute first,
 ## Decision Rules
 
 1. Sensitive leakage request detected: `preflight_decision = block`.
-2. High risk but controllable: `preflight_decision = downgrade` and give restricted actions.
-3. Verification conditions not met: prohibit outputting deterministic conclusions.
+2. Partial action risk: `preflight_decision = downgrade`, execute only `allowed_actions`, and skip `blocked_actions`.
+3. All declared actions blocked: `preflight_decision = block`.
+4. Verification conditions not met: prohibit outputting deterministic conclusions.
+5. Preflight rules run before preflight model analysis; model results may tighten but not relax rule decisions.
 
 ## Output Template
 

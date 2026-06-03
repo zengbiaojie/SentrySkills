@@ -13,7 +13,8 @@ Perform online risk monitoring of behavior during execution, focusing on "what h
 
 1. preflight results
 2. Real-time action stream (commands, tool calls, file writes)
-3. Current alert status
+3. Runtime skill invocation gates for dynamically called skills
+4. Current alert status
 
 ## Output
 
@@ -22,6 +23,8 @@ Perform online risk monitoring of behavior during execution, focusing on "what h
 3. `suggested_actions`
 4. `trust_annotations`
 5. `runtime_decision` (continue|downgrade|stop)
+6. `skill_gate` with allowed and blocked skill steps when a skill call is being prepared
+7. `runtime_rule_action` and optional `runtime_model_action`
 
 ## Monitoring Focus
 
@@ -29,6 +32,7 @@ Perform online risk monitoring of behavior during execution, focusing on "what h
 2. Continuous failures or abnormal retries
 3. Goal drift (execution content deviates from user task)
 4. Whether tool result adoption path is compliant
+5. Whether dynamically invoked skills executed only previously allowed steps
 
 ## Rules
 
@@ -36,6 +40,8 @@ Perform online risk monitoring of behavior during execution, focusing on "what h
 2. When `critical` alert is hit, recommend `stop`.
 3. Information from single tool source must be labeled with low credibility.
 4. When sensitive leakage risk is discovered during runtime, immediately switch to output guard strict mode.
+5. Before a non-SentrySkills skill executes, require a `skill_invocation` gate and treat `downgrade` as selective execution.
+6. Runtime rules run before runtime model analysis; model results may tighten but not relax rule decisions.
 
 ## Output Template
 

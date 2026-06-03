@@ -574,6 +574,7 @@
   -&gt; rule_gate
   -&gt; risk_assessment
   -&gt; model_stage(sync | async)
+  -&gt; promotion_context
   -&gt; proposal_sweep(end_of_task)</div>
       <div class="pipeline-legend">
         <div class="legend-row">
@@ -586,7 +587,7 @@
         </div>
         <div class="legend-row">
           <span class="legend-pill pill-green" data-i18n="panel.legend3.badge">Controlled writeback</span>
-          <span data-i18n="panel.legend3.text">New rules and memory are written only after a completed model stage.</span>
+          <span data-i18n="panel.legend3.text">Rule learning is controlled by `promotion_context`; read-only runs never grow active rules.</span>
         </div>
       </div>
     </aside>
@@ -642,12 +643,12 @@
       </div>
       <div class="card flow-step">
         <div class="flow-num">05</div>
-        <div class="mono">proposal_sweep</div>
-        <h3 data-i18n="flow.writeback.title">End-of-task proposal sweep</h3>
-        <p data-i18n="flow.writeback.desc">The main agent processes pending async proposals after the current turn is finalized. Any resulting rule updates apply to subsequent turns only.</p>
+        <div class="mono">promotion_context</div>
+        <h3 data-i18n="flow.writeback.title">Validated rule promotion</h3>
+        <p data-i18n="flow.writeback.desc">Model-stage candidates, user feedback, and outcome signals all enter the same promotion lifecycle: learn, candidate-only, or read-only.</p>
         <div class="tags">
-          <span class="tag allow" data-i18n="flow.writeback.tag1">main-agent maintenance</span>
-          <span class="tag allow" data-i18n="flow.writeback.tag2">next-turn effect</span>
+          <span class="tag allow" data-i18n="flow.writeback.tag1">active rules</span>
+          <span class="tag warn" data-i18n="flow.writeback.tag2">rule snapshots</span>
         </div>
       </div>
     </div>
@@ -701,11 +702,37 @@
       </div>
       <div class="card">
         <h3 data-i18n="features.f3.title">Knowledge stays controlled</h3>
-        <p data-i18n="features.f3.desc">New extra rules and memories are not created from pure rule hits. They require model-stage evidence and post-hoc validation.</p>
+        <p data-i18n="features.f3.desc">New extra rules require structured candidates, positive/negative validation, and a promotion context. Test and serving runs can stay read-only.</p>
       </div>
       <div class="card">
         <h3 data-i18n="features.f4.title">Workspace-local state</h3>
         <p data-i18n="features.f4.desc">Logs and adaptive knowledge are written under `.sentryskills/base` and `.sentryskills/extra`, avoiding global contamination.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="content" id="learning">
+    <div class="section-head">
+      <div class="section-tag" data-i18n="learning.tag">Adaptive Learning</div>
+      <h2 class="section-title" data-i18n="learning.title">One rule lifecycle for experiments and production</h2>
+      <p class="section-sub" data-i18n="learning.sub">Evolution cases, online traces, user feedback, shadow signals, and benchmark labels all feed the same promotion pipeline.</p>
+    </div>
+    <div class="feature-grid">
+      <div class="card">
+        <h3 data-i18n="learning.f1.title">Promotion context</h3>
+        <p data-i18n="learning.f1.desc">Use `source_type`, `update_mode`, and `promotion_policy` to control whether evidence learns, stays candidate-only, or remains read-only.</p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="learning.f2.title">Short feedback works</h3>
+        <p data-i18n="learning.f2.desc">Users can provide a single sentence such as `feedback_text = "this should not have executed"`; the hook turns it into a rule-proposer task.</p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="learning.f3.title">Automatic proposer trigger</h3>
+        <p data-i18n="learning.f3.desc">Blocked actions, runtime alerts, sensitive reads, and output leakage can trigger `rule_proposer_required` even when the model missed the risk.</p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="learning.f4.title">Frozen evaluation</h3>
+        <p data-i18n="learning.f4.desc">Experiments can save evolved `active_extra_rules.json`, restore it before each test run, and use `update_mode = read_only` to avoid test contamination.</p>
       </div>
     </div>
   </section>
@@ -802,7 +829,7 @@ curl -o ~/.openclaw/workspace/AGENTS.md \
         "panel.legend2.badge": "Conditional",
         "panel.legend2.text": "`model_stage` only runs after the rule gate allows the request to continue and the framework assigns a risk level.",
         "panel.legend3.badge": "Controlled writeback",
-        "panel.legend3.text": "New rules and memory are written only after a completed model stage.",
+        "panel.legend3.text": "Rule learning is controlled by `promotion_context`; read-only runs never grow active rules.",
         "flow.tag": "Execution Flow",
         "flow.title": "A pipeline built for strict ordering",
         "flow.sub": "The new version is no longer a full-chain HIGH/LOW split. It is a rule-first frontend plus risk-gated model dispatch.",
@@ -820,10 +847,10 @@ curl -o ~/.openclaw/workspace/AGENTS.md \
         "flow.model.desc": "Only entered if the rule stage does not block. The skill or framework must first assign a risk level: high risk stays sync; only low-risk turns may use async when the framework supports it.",
         "flow.model.tag1": "high risk -> sync",
         "flow.model.tag2": "low risk -> async if supported",
-        "flow.writeback.title": "End-of-task proposal sweep",
-        "flow.writeback.desc": "The main agent processes pending async proposals after the current turn is finalized. Any resulting rule updates apply to subsequent turns only.",
-        "flow.writeback.tag1": "main-agent maintenance",
-        "flow.writeback.tag2": "next-turn effect",
+        "flow.writeback.title": "Validated rule promotion",
+        "flow.writeback.desc": "Model-stage candidates, user feedback, and outcome signals all enter the same promotion lifecycle: learn, candidate-only, or read-only.",
+        "flow.writeback.tag1": "active rules",
+        "flow.writeback.tag2": "rule snapshots",
         "triggers.tag": "Trigger Policy",
         "triggers.title": "Each stage has a hard trigger boundary",
         "triggers.sub": "The design goal is to prevent expensive or noisy logic from running before cheaper rule evidence is exhausted.",
@@ -841,9 +868,20 @@ curl -o ~/.openclaw/workspace/AGENTS.md \
         "features.f2.title": "Async only where it belongs",
         "features.f2.desc": "Subagents or async execution are only for `model_stage`, not for the rule frontend.",
         "features.f3.title": "Knowledge stays controlled",
-        "features.f3.desc": "New extra rules and memories are not created from pure rule hits. They require model-stage evidence and post-hoc validation.",
+        "features.f3.desc": "New extra rules require structured candidates, positive/negative validation, and a promotion context. Test and serving runs can stay read-only.",
         "features.f4.title": "Workspace-local state",
         "features.f4.desc": "Logs and adaptive knowledge are written under `.sentryskills/base` and `.sentryskills/extra`, avoiding global contamination.",
+        "learning.tag": "Adaptive Learning",
+        "learning.title": "One rule lifecycle for experiments and production",
+        "learning.sub": "Evolution cases, online traces, user feedback, shadow signals, and benchmark labels all feed the same promotion pipeline.",
+        "learning.f1.title": "Promotion context",
+        "learning.f1.desc": "Use `source_type`, `update_mode`, and `promotion_policy` to control whether evidence learns, stays candidate-only, or remains read-only.",
+        "learning.f2.title": "Short feedback works",
+        "learning.f2.desc": "Users can provide a single sentence such as `feedback_text = \"this should not have executed\"`; the hook turns it into a rule-proposer task.",
+        "learning.f3.title": "Automatic proposer trigger",
+        "learning.f3.desc": "Blocked actions, runtime alerts, sensitive reads, and output leakage can trigger `rule_proposer_required` even when the model missed the risk.",
+        "learning.f4.title": "Frozen evaluation",
+        "learning.f4.desc": "Experiments can save evolved `active_extra_rules.json`, restore it before each test run, and use `update_mode = read_only` to avoid test contamination.",
         "install.tag": "Install",
         "install.title": "Framework notes",
         "install.sub": "The architecture is shared, but enforcement differs by framework.",

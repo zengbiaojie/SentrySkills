@@ -60,10 +60,12 @@ try:
         evaluate_extra_rules,
         load_extra_state,
         merge_action as merge_extra_action,
+        normalize_promotion_context,
         parse_model_stage,
         process_pending_proposals,
         synthesize_knowledge_from_model_stage,
         write_async_proposal,
+        write_rule_snapshot_manifest,
         writeback_model_knowledge,
     )
     EXTRA_GUARD_AVAILABLE = True
@@ -2048,6 +2050,7 @@ def build_unified_log(
             "policy_profile": policy_profile,
             "project_root": project_root,
             "duration_ms": duration_ms,
+            "promotion_context": (extra_layer or {}).get("promotion_context", {}),
         },
 
         # ===== Input =====
@@ -2056,6 +2059,7 @@ def build_unified_log(
             "planned_actions": planned_actions,
             "intent_tags": intent_tags,
             "runtime_events": runtime_events,
+            "skill_invocations": runtime.get("skill_gate", {}).get("skill_invocations", []),
             "sources": sources,
             "candidate_response": candidate_response,
         },
@@ -2069,6 +2073,9 @@ def build_unified_log(
             "risk_summary": preflight.get("risk_summary", []),
             "allowed_actions": preflight.get("allowed_actions", []),
             "blocked_actions": preflight.get("blocked_actions", []),
+            "action_gate": preflight.get("action_gate", {}),
+            "preflight_rule_action": preflight.get("preflight_rule_action", preflight.get("preflight_decision", "unknown")),
+            "preflight_model_action": preflight.get("preflight_model_action", "skipped"),
             "verification_requirements": preflight.get("verification_requirements", []),
             "decision_reason_codes": preflight.get("decision_reason_codes", []),
             "matched_rules": preflight.get("matched_rules", []),
@@ -2084,6 +2091,9 @@ def build_unified_log(
             "alerts": runtime.get("alerts", []),
             "suggested_actions": runtime.get("suggested_actions", []),
             "trust_annotations": runtime.get("trust_annotations", []),
+            "skill_gate": runtime.get("skill_gate", {}),
+            "runtime_rule_action": runtime.get("runtime_rule_action", runtime.get("runtime_decision", "unknown")),
+            "runtime_model_action": runtime.get("runtime_model_action", "skipped"),
             "decision_reason_codes": runtime.get("decision_reason_codes", []),
             "matched_rules": runtime.get("matched_rules", []),
             "behavior_analysis": {
@@ -2107,6 +2117,8 @@ def build_unified_log(
             "decision_reason_codes": output.get("decision_reason_codes", []),
             "matched_rules": output.get("matched_rules", []),
             "detected_leaks": detected_leaks,
+            "output_rule_action": output.get("output_rule_action", output.get("output_decision", "unknown")),
+            "output_model_action": output.get("output_model_action", "skipped"),
         },
 
         # ===== Final Decision =====
@@ -2121,6 +2133,10 @@ def build_unified_log(
             "model_executor": model_executor,
             "model_stage_result_available": model_stage_result_available,
             "proposal_sweep_effect": proposal_sweep_effect,
+            "action_gate": preflight.get("action_gate", {}),
+            "execution_directive": preflight.get("action_gate", {}).get("execution_directive", "execute_all_declared_actions"),
+            "blocked_action_reasons": preflight.get("action_gate", {}).get("blocked_action_reasons", []),
+            "promotion_context": (extra_layer or {}).get("promotion_context", {}),
         },
 
         # ===== Audit Info =====
@@ -2155,9 +2171,17 @@ def build_unified_log(
                 "pending_model_task": extra_layer.get("pending_model_task", {}),
             },
             "knowledge_layer": {
+                "promotion_context": extra_layer.get("promotion_context", {}),
+                "effective_promotion_context": extra_layer.get("effective_promotion_context", {}),
+                "feedback": extra_layer.get("feedback", {}),
+                "outcome_signals": extra_layer.get("outcome_signals", {}),
+                "rule_proposer_trigger": extra_layer.get("rule_proposer_trigger", {}),
+                "rule_proposer_status": extra_layer.get("rule_proposer_status", "not_required"),
+                "pending_rule_proposer_task": extra_layer.get("pending_rule_proposer_task", {}),
                 "proposal_sweep": extra_layer.get("proposal_sweep", {}),
                 "proposal_sweep_effect": proposal_sweep_effect,
                 "proposal_write": extra_layer.get("proposal_write", {}),
+                "rule_snapshot_manifest": extra_layer.get("rule_snapshot_manifest", {}),
                 "status": extra_layer.get("knowledge_writeback_status", "skipped"),
                 "dedup_summary": extra_layer.get("dedup_summary", {}),
                 "validation_summary": extra_layer.get("validation_summary", {}),
@@ -2216,6 +2240,273 @@ def _derive_proposal_sweep_effect(proposal_sweep: Dict[str, Any]) -> str:
     return "no_change"
 
 
+def _clean_string_list(values: Any, limit: int = 20) -> List[str]:
+    if not isinstance(values, list):
+        return []
+    cleaned: List[str] = []
+    for value in values[:limit]:
+        text = str(value).strip()
+        if text:
+            cleaned.append(text[:2000])
+    return cleaned
+
+
+def _normalize_feedback(payload: Dict[str, Any]) -> Dict[str, Any]:
+    feedback = payload.get("feedback", {})
+    feedback_text = str(payload.get("feedback_text", "")).strip()
+    if isinstance(feedback, str):
+        feedback_text = feedback.strip()
+        feedback = {}
+    if not isinstance(feedback, dict):
+        feedback = {}
+    if feedback_text and not feedback:
+        text_lower = feedback_text.lower()
+        risk_markers = [
+            "attacked",
+            "attack",
+            "unsafe",
+            "should not",
+            "shouldn't",
+            "wrong",
+            "bad",
+            "leak",
+            "exfil",
+            "deleted",
+            "overwrote",
+            "rollback",
+            "revert",
+            "被攻击",
+            "攻击成功",
+            "不该",
+            "不应该",
+            "有风险",
+            "危险",
+            "泄露",
+            "误删",
+            "删错",
+            "回滚",
+            "撤销",
+        ]
+        known_risk = any(marker in text_lower for marker in risk_markers)
+        return {
+            "present": True,
+            "known_risk": known_risk,
+            "attack_success": any(marker in text_lower for marker in ["attack succeeded", "attacked", "攻击成功", "被攻击"]),
+            "risk_source": "user_text_feedback",
+            "attack_family": "",
+            "failed_guard_stage": "unknown",
+            "why_failed": feedback_text[:2000],
+            "positive_evidence": [feedback_text[:2000]],
+            "negative_evidence": [],
+            "labels": {"feedback_text": feedback_text[:2000], "parsed_from_text": True},
+        }
+    if not feedback:
+        return {
+            "present": False,
+            "known_risk": False,
+            "attack_success": False,
+            "risk_source": "",
+            "attack_family": "",
+            "failed_guard_stage": "",
+            "why_failed": "",
+            "positive_evidence": [],
+            "negative_evidence": [],
+            "labels": {},
+        }
+    return {
+        "present": True,
+        "known_risk": bool(feedback.get("known_risk", False)),
+        "attack_success": bool(feedback.get("attack_success", False)),
+        "risk_source": str(feedback.get("risk_source", "")).strip()[:200],
+        "attack_family": str(feedback.get("attack_family", "")).strip()[:200],
+        "failed_guard_stage": str(feedback.get("failed_guard_stage", "")).strip()[:200],
+        "why_failed": str(feedback.get("why_failed", "")).strip()[:2000],
+        "positive_evidence": _clean_string_list(feedback.get("positive_evidence", []), limit=40),
+        "negative_evidence": _clean_string_list(feedback.get("negative_evidence", []), limit=40),
+        "labels": {
+            str(key)[:200]: value
+            for key, value in feedback.items()
+            if key not in {
+                "known_risk",
+                "attack_success",
+                "risk_source",
+                "attack_family",
+                "failed_guard_stage",
+                "why_failed",
+                "positive_evidence",
+                "negative_evidence",
+            }
+        },
+    }
+
+
+def _normalize_outcome_signals(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw = payload.get("outcome_signals", [])
+    if not isinstance(raw, list):
+        return []
+    signals: List[Dict[str, Any]] = []
+    for index, item in enumerate(raw[:50], start=1):
+        if isinstance(item, dict):
+            signal_type = str(item.get("type", item.get("signal_type", f"outcome_{index}"))).strip().lower()[:200]
+            severity = str(item.get("severity", "medium")).strip().lower()[:50]
+            evidence = _clean_string_list(item.get("evidence", []), limit=20)
+            reason = str(item.get("reason", item.get("description", ""))).strip()[:2000]
+        else:
+            signal_type = f"outcome_{index}"
+            severity = "medium"
+            evidence = [str(item).strip()[:2000]] if str(item).strip() else []
+            reason = str(item).strip()[:2000]
+        if not signal_type:
+            signal_type = f"outcome_{index}"
+        signals.append(
+            {
+                "type": signal_type,
+                "severity": severity if severity in {"low", "medium", "high", "critical"} else "medium",
+                "reason": reason,
+                "evidence": evidence,
+            }
+        )
+    return signals
+
+
+def _auto_outcome_signals(
+    preflight: Dict[str, Any],
+    runtime: Dict[str, Any],
+    output: Dict[str, Any],
+    runtime_events: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    signals: List[Dict[str, Any]] = []
+    action_gate = preflight.get("action_gate", {})
+    if action_gate.get("blocked_action_count", 0):
+        signals.append(
+            {
+                "type": "blocked_action_observed",
+                "severity": "medium",
+                "reason": "Action gate blocked one or more declared actions.",
+                "evidence": [str(x) for x in action_gate.get("blocked_action_reasons", [])],
+            }
+        )
+    if runtime.get("alerts"):
+        for alert in runtime.get("alerts", [])[:20]:
+            severity = str(alert.get("severity", "medium")).strip().lower()
+            if severity in {"warning", "critical"}:
+                signals.append(
+                    {
+                        "type": str(alert.get("type", "runtime_alert")).strip().lower(),
+                        "severity": "critical" if severity == "critical" else "high",
+                        "reason": str(alert.get("message", alert.get("reason", "Runtime alert observed."))),
+                        "evidence": [str(alert)],
+                    }
+                )
+    if output.get("leakage_detected") or output.get("residual_leakage_detected"):
+        signals.append(
+            {
+                "type": "output_leakage_observed",
+                "severity": "critical" if output.get("residual_leakage_detected") else "high",
+                "reason": "Output guard observed leakage or residual leakage.",
+                "evidence": [str(x) for x in output.get("redaction_summary", [])],
+            }
+        )
+    event_types = [str(event.get("type", "")).strip().lower() for event in runtime_events if isinstance(event, dict)]
+    if "read_secret" in event_types or "read_credential" in event_types:
+        signals.append(
+            {
+                "type": "sensitive_read_observed",
+                "severity": "critical",
+                "reason": "Runtime trace includes a secret or credential read.",
+                "evidence": event_types,
+            }
+        )
+    return signals
+
+
+def _derive_rule_proposer_trigger(
+    feedback: Dict[str, Any],
+    explicit_outcomes: List[Dict[str, Any]],
+    auto_outcomes: List[Dict[str, Any]],
+    promotion_context: Dict[str, Any],
+) -> Dict[str, Any]:
+    evidence_signals = list(explicit_outcomes) + list(auto_outcomes)
+    has_label = bool(feedback.get("known_risk") or feedback.get("attack_success"))
+    critical_outcome = any(str(item.get("severity", "")).lower() == "critical" for item in evidence_signals)
+    high_outcome = any(str(item.get("severity", "")).lower() == "high" for item in evidence_signals)
+    shadow_signal = bool(evidence_signals)
+    should_trigger = has_label or critical_outcome or high_outcome or shadow_signal
+    if not should_trigger:
+        confidence = "none"
+        recommended_update_mode = str(promotion_context.get("update_mode", "learn"))
+        recommended_policy = str(promotion_context.get("promotion_policy", "conservative"))
+    elif str(promotion_context.get("update_mode", "learn")) == "read_only":
+        confidence = "high" if has_label else "medium" if (critical_outcome or high_outcome) else "low"
+        recommended_update_mode = "read_only"
+        recommended_policy = str(promotion_context.get("promotion_policy", "conservative"))
+    elif has_label:
+        confidence = "high"
+        recommended_update_mode = "learn"
+        recommended_policy = "variant_validated"
+    elif critical_outcome or high_outcome:
+        confidence = "medium"
+        recommended_update_mode = "candidate_only"
+        recommended_policy = "conservative"
+    else:
+        confidence = "low"
+        recommended_update_mode = "candidate_only"
+        recommended_policy = "conservative"
+    return {
+        "triggered": should_trigger,
+        "confidence": confidence,
+        "feedback": feedback,
+        "explicit_outcome_signals": explicit_outcomes,
+        "auto_outcome_signals": auto_outcomes,
+        "recommended_promotion_context": {
+            **promotion_context,
+            "update_mode": recommended_update_mode,
+            "promotion_policy": recommended_policy,
+        },
+        "trigger_reasons": (
+            (["user_or_benchmark_feedback"] if has_label else [])
+            + (["critical_or_high_outcome"] if critical_outcome or high_outcome else [])
+            + (["shadow_outcome_signal"] if shadow_signal and not (critical_outcome or high_outcome) else [])
+        ),
+    }
+
+
+def _build_rule_proposer_task(
+    turn_id: str,
+    promotion_context: Dict[str, Any],
+    proposer_trigger: Dict[str, Any],
+    user_prompt: str,
+    planned_actions: List[Any],
+    runtime_events: List[Dict[str, Any]],
+    candidate_response: str,
+) -> Dict[str, Any]:
+    return {
+        "task_id": f"rule-proposer:{turn_id}",
+        "task_type": "rule_proposer",
+        "dispatch_mode": "sync_or_async",
+        "created_at": now_iso(),
+        "source_turn_id": turn_id,
+        "promotion_context": proposer_trigger.get("recommended_promotion_context", promotion_context),
+        "proposer_instruction": (
+            "Known feedback or outcome signals indicate a possible missed risk. "
+            "Infer reusable SentrySkills rule_candidates and memory_candidates. "
+            "Each rule candidate must include pattern, pattern_type, phase_scope, risk_type, "
+            "trigger_condition, suggested_action, reason_code, evidence_items, "
+            "validation_cases.positive, validation_cases.negative, positive_variants, "
+            "negative_variants, generalization_basis, and promotion_rationale."
+        ),
+        "evidence_bundle": {
+            "feedback": proposer_trigger.get("feedback", {}),
+            "explicit_outcome_signals": proposer_trigger.get("explicit_outcome_signals", []),
+            "auto_outcome_signals": proposer_trigger.get("auto_outcome_signals", []),
+            "user_prompt_excerpt": excerpt(user_prompt, 4000),
+            "planned_actions": planned_actions[:50],
+            "runtime_events": runtime_events[:100],
+            "candidate_response_excerpt": excerpt(candidate_response, 4000),
+        },
+    }
+
+
 def _describe_reason_code(code: str) -> str:
     """Translate internal reason code into a human-readable sentence."""
     known = {
@@ -2245,6 +2536,10 @@ def _describe_reason_code(code: str) -> str:
         return "A critical action was planned in preflight."
     if code.startswith("PREDICTIVE_RISK_"):
         return "Predictive analysis reported elevated risk."
+    if code.startswith("SKILL_"):
+        return "Runtime skill invocation gate raised a risk signal."
+    if code.startswith("ACTION_GATE_"):
+        return "Action gate blocked one or more declared actions."
     if code.startswith("RT_"):
         return "Runtime monitoring raised a risk signal."
     if code.startswith("OG_"):
@@ -2263,7 +2558,8 @@ def _build_preflight_analysis(preflight: Dict[str, Any], planned_actions: List[s
 
     parts = [f"Preflight decision={decision}."]
     if planned_actions:
-        parts.append(f"Planned actions reviewed: {', '.join(planned_actions[:5])}.")
+        planned_labels = [_action_label(action) for action in planned_actions[:5]]
+        parts.append(f"Planned actions reviewed: {', '.join(planned_labels)}.")
     if risk_summary:
         parts.append(f"Key risk signals: {', '.join(risk_summary[:3])}.")
     elif reason_codes:
@@ -2279,6 +2575,362 @@ def _build_preflight_analysis(preflight: Dict[str, Any], planned_actions: List[s
     if verification:
         parts.append(f"Verification requirements: {', '.join(verification[:3])}.")
     return " ".join(parts)
+
+
+SKILL_GATE_ACTION_TYPES = {
+    "tool_call",
+    "read_file",
+    "write_file",
+    "delete_file",
+    "execute_command",
+    "network_call",
+    "read_secret",
+    "read_credential",
+    "batch_modify",
+}
+
+SKILL_GATE_HIGH_RISK_ACTIONS = {
+    "write_file",
+    "execute_command",
+    "network_call",
+    "batch_modify",
+}
+
+SKILL_GATE_CRITICAL_ACTIONS = {
+    "read_secret",
+    "read_credential",
+    "delete_file",
+}
+
+
+def _normalize_skill_action(item: Any) -> Dict[str, Any]:
+    if isinstance(item, dict):
+        action = str(item.get("action", item.get("type", item.get("name", "")))).strip().lower()
+        step = str(item.get("step", item.get("description", action))).strip()
+        required = bool(item.get("required", False))
+        reason = str(item.get("reason", "")).strip()
+    else:
+        action = str(item).strip().lower()
+        step = action
+        required = False
+        reason = ""
+    recognized = action in SKILL_GATE_ACTION_TYPES
+    if not action:
+        action = "tool_call"
+        recognized = True
+    return {"action": action, "step": step or action, "required": required, "reason": reason, "recognized": recognized}
+
+
+def _normalize_planned_action(item: Any, index: int = 0) -> Dict[str, Any]:
+    if isinstance(item, dict):
+        action = str(item.get("action", item.get("type", item.get("name", "")))).strip().lower()
+        step = str(item.get("step", item.get("description", action))).strip()
+        required = bool(item.get("required", False))
+        reason = str(item.get("reason", "")).strip()
+        source = str(item.get("source", "planned_action")).strip() or "planned_action"
+    else:
+        action = str(item).strip().lower()
+        step = action
+        required = False
+        reason = ""
+        source = "planned_action"
+    recognized = action in SKILL_GATE_ACTION_TYPES
+    if not action:
+        action = "tool_call"
+        recognized = True
+    return {
+        "action_id": f"planned:{index}:{action}",
+        "action": action,
+        "step": step or action,
+        "required": required,
+        "reason": reason,
+        "source": source,
+        "recognized": recognized,
+    }
+
+
+def _action_label(action: Any) -> str:
+    if isinstance(action, dict):
+        return str(action.get("action", action.get("type", action.get("name", "")))).strip().lower()
+    return str(action).strip().lower()
+
+
+def evaluate_action_gate(
+    planned_actions: List[Any],
+    skill_gate: Optional[Dict[str, Any]] = None,
+    policy: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    policy = policy or {}
+    high_risk_actions = set(SKILL_GATE_HIGH_RISK_ACTIONS) | {
+        str(item).strip().lower()
+        for item in policy.get("high_risk_actions", [])
+        if str(item).strip()
+    }
+    critical_actions = set(SKILL_GATE_CRITICAL_ACTIONS)
+
+    allowed_actions: List[Dict[str, Any]] = []
+    blocked_actions: List[Dict[str, Any]] = []
+    reason_codes: List[str] = []
+    matched_rules: List[str] = []
+
+    for index, item in enumerate(planned_actions, start=1):
+        action = _normalize_planned_action(item, index)
+        action_type = str(action.get("action", "tool_call"))
+        record = {
+            "source": action.get("source", "planned_action"),
+            "action_id": action.get("action_id", ""),
+            "action": action_type,
+            "step": action.get("step", action_type),
+            "required": bool(action.get("required", False)),
+            "reason": action.get("reason", ""),
+            "stage": "preflight",
+        }
+        if not bool(action.get("recognized", True)):
+            blocked_actions.append({**record, "block_reason": "unknown_action_type"})
+            reason_codes.append("ACTION_GATE_UNKNOWN_ACTION_TYPE")
+            matched_rules.append(f"action_gate:{action_type}:unknown")
+        elif action_type in critical_actions:
+            blocked_actions.append({**record, "block_reason": "critical_action"})
+            reason_codes.append("ACTION_GATE_CRITICAL_ACTION_BLOCKED")
+            matched_rules.append(f"action_gate:{action_type}:critical")
+        elif action_type in high_risk_actions:
+            blocked_actions.append({**record, "block_reason": "high_risk_action"})
+            reason_codes.append("ACTION_GATE_HIGH_RISK_ACTION_BLOCKED")
+            matched_rules.append(f"action_gate:{action_type}:high_risk")
+        else:
+            allowed_actions.append(record)
+
+    if skill_gate:
+        for item in skill_gate.get("allowed_skill_steps", []):
+            if isinstance(item, dict):
+                allowed_actions.append({**item, "source": "skill_invocation", "stage": "runtime"})
+        for item in skill_gate.get("blocked_skill_steps", []):
+            if isinstance(item, dict):
+                blocked_actions.append({**item, "source": "skill_invocation", "stage": "runtime", "block_reason": item.get("block_reason", "skill_gate_blocked")})
+        reason_codes.extend(str(x) for x in skill_gate.get("decision_reason_codes", []) if str(x).strip())
+        matched_rules.extend(str(x) for x in skill_gate.get("matched_rules", []) if str(x).strip())
+
+    total_declared = len(allowed_actions) + len(blocked_actions)
+    if total_declared == 0 or not blocked_actions:
+        gate_action = "allow"
+        directive = "execute_all_declared_actions"
+    elif allowed_actions:
+        gate_action = "downgrade"
+        directive = "execute_allowed_actions_only"
+    else:
+        gate_action = "block"
+        directive = "execute_no_actions"
+        reason_codes.append("ACTION_GATE_ALL_ACTIONS_BLOCKED")
+
+    return {
+        "action_gate_action": gate_action,
+        "execution_directive": directive,
+        "allowed_actions": allowed_actions,
+        "blocked_actions": blocked_actions,
+        "allowed_action_count": len(allowed_actions),
+        "blocked_action_count": len(blocked_actions),
+        "blocked_action_reasons": sorted(set(str(item.get("block_reason", "blocked")) for item in blocked_actions)),
+        "decision_reason_codes": sorted(set(reason_codes)),
+        "matched_rules": sorted(set(matched_rules)),
+    }
+
+
+def _normalize_skill_invocations(
+    skill_invocations: List[Dict[str, Any]],
+    runtime_events: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    raw_items: List[Dict[str, Any]] = []
+    raw_items.extend(item for item in skill_invocations if isinstance(item, dict))
+    raw_items.extend(
+        event for event in runtime_events
+        if isinstance(event, dict) and str(event.get("type", "")).strip().lower() == "skill_invocation"
+    )
+
+    for index, item in enumerate(raw_items, start=1):
+        skill_name = str(item.get("skill_name", item.get("name", "unknown_skill"))).strip()
+        invocation_id = str(
+            item.get("skill_invocation_id")
+            or item.get("invocation_id")
+            or f"{skill_name}:{index}"
+        ).strip()
+        candidate_actions = item.get("candidate_actions", [])
+        if not isinstance(candidate_actions, list):
+            candidate_actions = [candidate_actions]
+        normalized.append(
+            {
+                "skill_invocation_id": invocation_id,
+                "skill_name": skill_name or "unknown_skill",
+                "invocation_reason": str(item.get("invocation_reason", "")).strip(),
+                "requested_step": str(item.get("requested_step", "")).strip(),
+                "current_context_summary": str(item.get("current_context_summary", "")).strip(),
+                "candidate_actions": [_normalize_skill_action(action) for action in candidate_actions],
+            }
+        )
+    return normalized
+
+
+def _skill_invocation_text(skill_invocations: List[Dict[str, Any]]) -> str:
+    parts: List[str] = []
+    for invocation in skill_invocations:
+        parts.append(str(invocation.get("skill_name", "")))
+        parts.append(str(invocation.get("invocation_reason", "")))
+        parts.append(str(invocation.get("requested_step", "")))
+        for action in invocation.get("candidate_actions", []):
+            parts.append(str(action.get("action", "")))
+            parts.append(str(action.get("step", "")))
+            parts.append(str(action.get("reason", "")))
+    return "\n".join(part for part in parts if part)
+
+
+def evaluate_skill_gate(
+    skill_invocations: List[Dict[str, Any]],
+    runtime_events: List[Dict[str, Any]],
+    policy: Dict[str, Any],
+) -> Dict[str, Any]:
+    normalized_invocations = _normalize_skill_invocations(skill_invocations, runtime_events)
+    allowed_steps: List[Dict[str, Any]] = []
+    blocked_steps: List[Dict[str, Any]] = []
+    safe_substitute_steps: List[str] = []
+    alerts: List[Dict[str, str]] = []
+    decision_reason_codes: List[str] = []
+    matched_rules: List[str] = []
+    gate_results: List[Dict[str, Any]] = []
+    decision = "allow"
+
+    allowed_by_invocation_id: Dict[str, Any] = {}
+    allowed_by_skill_name: Dict[str, Any] = {}
+    high_risk_actions = set(SKILL_GATE_HIGH_RISK_ACTIONS) | {
+        str(item).strip().lower()
+        for item in policy.get("high_risk_actions", [])
+        if str(item).strip()
+    }
+    critical_actions = set(SKILL_GATE_CRITICAL_ACTIONS)
+
+    for invocation in normalized_invocations:
+        invocation_allowed: List[Dict[str, Any]] = []
+        invocation_blocked: List[Dict[str, Any]] = []
+        invocation_action = "allow"
+        skill_name = str(invocation.get("skill_name", "unknown_skill"))
+        invocation_id = str(invocation.get("skill_invocation_id", ""))
+
+        for candidate in invocation.get("candidate_actions", []):
+            action = str(candidate.get("action", "tool_call")).strip().lower()
+            step_record = {
+                "skill_invocation_id": invocation_id,
+                "skill_name": skill_name,
+                "action": action,
+                "step": str(candidate.get("step", action)),
+                "reason": str(candidate.get("reason", "")),
+            }
+            if not bool(candidate.get("recognized", True)):
+                invocation_blocked.append(step_record)
+                blocked_steps.append(step_record)
+                if invocation_action != "block":
+                    invocation_action = "downgrade"
+                if decision == "allow":
+                    decision = "downgrade"
+                alerts.append({"severity": "warning", "message": f"skill {skill_name} requested undeclared action type {action}"})
+                decision_reason_codes.append("SKILL_GATE_UNKNOWN_ACTION_TYPE")
+                matched_rules.append(f"skill_gate:{skill_name}:{action}:unknown")
+                safe_substitute_steps.append(f"Declare {action} as a supported action type before running it inside {skill_name}.")
+            elif action in critical_actions:
+                invocation_blocked.append(step_record)
+                blocked_steps.append(step_record)
+                invocation_action = "block"
+                decision = "block"
+                alerts.append({"severity": "critical", "message": f"skill {skill_name} requested critical action {action}"})
+                decision_reason_codes.append("SKILL_GATE_CRITICAL_ACTION")
+                matched_rules.append(f"skill_gate:{skill_name}:{action}")
+                safe_substitute_steps.append(f"Do not run {action} inside {skill_name}; request explicit authorization or use redacted metadata.")
+            elif action in high_risk_actions:
+                invocation_blocked.append(step_record)
+                blocked_steps.append(step_record)
+                if invocation_action != "block":
+                    invocation_action = "downgrade"
+                if decision == "allow":
+                    decision = "downgrade"
+                alerts.append({"severity": "warning", "message": f"skill {skill_name} high-risk action {action} downgraded"})
+                decision_reason_codes.append("SKILL_GATE_HIGH_RISK_ACTION_DOWNGRADED")
+                matched_rules.append(f"skill_gate:{skill_name}:{action}")
+                safe_substitute_steps.append(f"Run only low-risk local steps for {skill_name}; skip {action}.")
+            else:
+                invocation_allowed.append(step_record)
+                allowed_steps.append(step_record)
+                allowed_by_invocation_id.setdefault(invocation_id, set()).add(action)
+                allowed_by_skill_name.setdefault(skill_name, set()).add(action)
+
+        if not invocation.get("candidate_actions"):
+            invocation_action = "downgrade"
+            if decision == "allow":
+                decision = "downgrade"
+            alerts.append({"severity": "warning", "message": f"skill {skill_name} invocation did not declare candidate actions"})
+            decision_reason_codes.append("SKILL_INVOCATION_EMPTY_ACTIONS")
+            matched_rules.append(f"skill_gate:{skill_name}:empty_actions")
+            safe_substitute_steps.append(f"Declare candidate actions for {skill_name} before executing it.")
+
+        gate_results.append(
+            {
+                "skill_invocation_id": invocation_id,
+                "skill_name": skill_name,
+                "invocation_reason": invocation.get("invocation_reason", ""),
+                "requested_step": invocation.get("requested_step", ""),
+                "gate_action": invocation_action,
+                "allowed_actions": sorted({item["action"] for item in invocation_allowed}),
+                "blocked_actions": sorted({item["action"] for item in invocation_blocked}),
+            }
+        )
+
+    for event in runtime_events:
+        if not isinstance(event, dict):
+            continue
+        event_type = str(event.get("type", "")).strip().lower()
+        if event_type in {"skill_invocation", "retry"}:
+            continue
+        skill_name = str(event.get("skill_name", "")).strip()
+        invocation_id = str(event.get("skill_invocation_id", event.get("invocation_id", ""))).strip()
+        if not skill_name and not invocation_id:
+            continue
+
+        allowed_actions = set()
+        if invocation_id:
+            allowed_actions |= allowed_by_invocation_id.get(invocation_id, set())
+        if skill_name:
+            allowed_actions |= allowed_by_skill_name.get(skill_name, set())
+
+        if not allowed_actions:
+            if decision == "allow":
+                decision = "downgrade"
+            alerts.append({"severity": "warning", "message": f"runtime action {event_type} for skill {skill_name or invocation_id} was not gated"})
+            decision_reason_codes.append("SKILL_INVOCATION_NOT_GATED")
+            matched_rules.append(f"skill_runtime:{skill_name or invocation_id}:{event_type}:not_gated")
+            safe_substitute_steps.append("Run a skill_invocation gate before executing skill-owned runtime actions.")
+            continue
+
+        if event_type not in allowed_actions:
+            if event_type in critical_actions:
+                decision = "block"
+                severity = "critical"
+            else:
+                if decision == "allow":
+                    decision = "downgrade"
+                severity = "warning"
+            alerts.append({"severity": severity, "message": f"runtime action {event_type} for skill {skill_name or invocation_id} was not allowed by skill gate"})
+            decision_reason_codes.append("SKILL_ACTION_NOT_ALLOWED")
+            matched_rules.append(f"skill_runtime:{skill_name or invocation_id}:{event_type}:not_allowed")
+
+    return {
+        "skill_gate_action": decision,
+        "skill_invocations": normalized_invocations,
+        "skill_gate_results": gate_results,
+        "allowed_skill_steps": allowed_steps,
+        "blocked_skill_steps": blocked_steps,
+        "requires_confirmation": bool(blocked_steps),
+        "safe_substitute_steps": sorted(set(safe_substitute_steps)),
+        "alerts": alerts,
+        "decision_reason_codes": sorted(set(decision_reason_codes)),
+        "matched_rules": sorted(set(matched_rules)),
+    }
 
 
 def _build_runtime_analysis(runtime: Dict[str, Any]) -> str:
@@ -2358,6 +3010,7 @@ def _build_decision_trace(
             "evidence": {
                 "risk_summary": list(preflight.get("risk_summary", []))[:5],
                 "blocked_actions": list(preflight.get("blocked_actions", []))[:10],
+                "action_gate": preflight.get("action_gate", {}),
                 "verification_requirements": list(preflight.get("verification_requirements", []))[:10],
             },
         },
@@ -2372,6 +3025,7 @@ def _build_decision_trace(
             "evidence": {
                 "alerts": list(runtime.get("alerts", []))[:10],
                 "suggested_actions": list(runtime.get("suggested_actions", []))[:10],
+                "skill_gate": runtime.get("skill_gate", {}),
             },
         },
         {
@@ -2475,10 +3129,11 @@ def infer_sensitivity(prompt: str, events: List[Dict[str, Any]], previous_state:
 
 def preflight_decision(
     user_prompt: str,
-    planned_actions: List[str],
+    planned_actions: List[Any],
     intent_tags: List[str],
     sensitivity_state: str,
     policy: Dict[str, Any],
+    skill_invocations: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     prompt_low = user_prompt.lower()
     high_risk_actions = {str(x) for x in policy.get("high_risk_actions", [])}
@@ -2487,7 +3142,9 @@ def preflight_decision(
     explanation_phrases = [str(x).lower() for x in policy.get("explanation_leakage_phrases", [])]
     config_phrases = [str(x).lower() for x in policy.get("config_disclosure_phrases", [])]
     database_phrases = [str(x).lower() for x in policy.get("database_leak_phrases", [])]
-    has_high_risk_action = any(a in high_risk_actions for a in planned_actions)
+    planned_action_names = [_action_label(a) for a in planned_actions]
+    has_high_risk_action = any(a in high_risk_actions for a in planned_action_names)
+    action_gate = evaluate_action_gate(planned_actions, policy=policy)
 
     risk_summary: List[str] = []
     blocked_actions: List[str] = []
@@ -2495,6 +3152,20 @@ def preflight_decision(
     decision_reason_codes: List[str] = []
     matched_rules: List[str] = []
     decision = "allow"
+
+    if action_gate["action_gate_action"] == "block":
+        decision = "block"
+        risk_summary.append("all declared planned actions were blocked by action gate")
+        blocked_actions.extend(str(item.get("action", "")) for item in action_gate.get("blocked_actions", []))
+        decision_reason_codes.extend(action_gate.get("decision_reason_codes", []))
+        matched_rules.extend(action_gate.get("matched_rules", []))
+    elif action_gate["action_gate_action"] == "downgrade":
+        decision = "downgrade"
+        risk_summary.append("some planned actions were blocked by action gate")
+        blocked_actions.extend(str(item.get("action", "")) for item in action_gate.get("blocked_actions", []))
+        verification_requirements.append("execute allowed planned actions only")
+        decision_reason_codes.extend(action_gate.get("decision_reason_codes", []))
+        matched_rules.extend(action_gate.get("matched_rules", []))
 
     # Existing checks
     explicit_hits = get_match_hits(prompt_low, explicit_phrases)
@@ -2518,8 +3189,15 @@ def preflight_decision(
     attack_detection = detect_attack_patterns(user_prompt, policy)
 
     # Extended detection rules (Phase 1: Pattern Matching)
-    # Scan user_prompt AND planned_actions content so injection patterns inside actions are caught
-    preflight_scan_text = user_prompt + "\n" + "\n".join(str(a) for a in planned_actions)
+    # Scan user_prompt, planned_actions, and runtime skill invocation gates so
+    # injection patterns inside dynamic skill actions are caught.
+    preflight_scan_text = (
+        user_prompt
+        + "\n"
+        + "\n".join(str(a) for a in planned_actions)
+        + "\n"
+        + _skill_invocation_text(skill_invocations or [])
+    )
     extended_detection = run_extended_detection(preflight_scan_text, policy, phase="preflight")
     if extended_detection.get("total", 0) > 0:
         # Process extended detection results
@@ -2584,7 +3262,7 @@ def preflight_decision(
     if attack_detection["detected"]:
         decision = "block"
         risk_summary.append(f"attack patterns detected: {', '.join(attack_detection['patterns'])}")
-        decision_reason_codes.append(f"PF_ATTACK_{pattern.upper()}" for pattern in attack_detection["patterns"])
+        decision_reason_codes.extend(f"PF_ATTACK_{pattern.upper()}" for pattern in attack_detection["patterns"])
         matched_rules.extend(attack_detection["patterns"])
 
     # Phase 2: Advanced attack detection
@@ -2680,7 +3358,7 @@ def preflight_decision(
 
         # Assess each action
         critical_actions = {str(x) for x in policy.get("critical_actions", [])}
-        for action in planned_actions:
+        for action in planned_action_names:
             if action in high_risk_actions:
                 risk_assessment = assess_action_risk(action, detected_env, sensitivity_state, policy)
 
@@ -2710,7 +3388,7 @@ def preflight_decision(
     # Run predictive analysis (after all security checks pass)
     predictive_analysis = run_predictive_analysis(
         user_prompt,
-        planned_actions,
+        planned_action_names,
         conversation_history=None,  # Could be enhanced with actual history
         policy=policy
     )
@@ -2735,8 +3413,11 @@ def preflight_decision(
     result = {
         "risk_summary": risk_summary or ["no critical preflight risk"],
         "sensitivity_state": sensitivity_state,
-        "allowed_actions": ["read_only", "summarize", "explain"],
-        "blocked_actions": blocked_actions,
+        "allowed_actions": action_gate.get("allowed_actions", []),
+        "blocked_actions": action_gate.get("blocked_actions", []) or sorted(set(blocked_actions)),
+        "action_gate": action_gate,
+        "preflight_rule_action": decision,
+        "preflight_model_action": "skipped",
         "verification_requirements": sorted(set(verification_requirements)),
         "decision_reason_codes": sorted(set(decision_reason_codes)),
         "matched_rules": sorted(set(matched_rules)),
@@ -2747,7 +3428,12 @@ def preflight_decision(
     return result
 
 
-def runtime_decision(runtime_events: List[Dict[str, Any]], sources: List[Dict[str, Any]], policy: Dict[str, Any]) -> Dict[str, Any]:
+def runtime_decision(
+    runtime_events: List[Dict[str, Any]],
+    sources: List[Dict[str, Any]],
+    policy: Dict[str, Any],
+    skill_invocations: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     alerts: List[Dict[str, str]] = []
     suggested_actions: List[str] = []
     trust_annotations: List[Dict[str, str]] = []
@@ -2757,6 +3443,15 @@ def runtime_decision(runtime_events: List[Dict[str, Any]], sources: List[Dict[st
     decision = "continue"
     retry_threshold = int(policy.get("retry_threshold_downgrade", 3))
     single_source_types = {str(x) for x in policy.get("single_source_types", ["tool_single_source"])}
+    skill_gate = evaluate_skill_gate(skill_invocations or [], runtime_events, policy)
+    if skill_gate["skill_gate_action"] == "block":
+        decision = "stop"
+    elif skill_gate["skill_gate_action"] == "downgrade" and decision == "continue":
+        decision = "downgrade"
+    alerts.extend(skill_gate.get("alerts", []))
+    suggested_actions.extend(skill_gate.get("safe_substitute_steps", []))
+    decision_reason_codes.extend(skill_gate.get("decision_reason_codes", []))
+    matched_rules.extend(skill_gate.get("matched_rules", []))
 
     retry_count = sum(1 for e in runtime_events if str(e.get("type", "")).strip().lower() == "retry")
     if retry_count >= retry_threshold:
@@ -2821,6 +3516,17 @@ def runtime_decision(runtime_events: List[Dict[str, Any]], sources: List[Dict[st
         "alerts": alerts,
         "suggested_actions": sorted(set(suggested_actions)),
         "trust_annotations": trust_annotations,
+        "skill_gate": {
+            "skill_gate_action": skill_gate.get("skill_gate_action", "allow"),
+            "skill_invocations": skill_gate.get("skill_invocations", []),
+            "skill_gate_results": skill_gate.get("skill_gate_results", []),
+            "allowed_skill_steps": skill_gate.get("allowed_skill_steps", []),
+            "blocked_skill_steps": skill_gate.get("blocked_skill_steps", []),
+            "requires_confirmation": skill_gate.get("requires_confirmation", False),
+            "safe_substitute_steps": skill_gate.get("safe_substitute_steps", []),
+            "decision_reason_codes": skill_gate.get("decision_reason_codes", []),
+            "matched_rules": skill_gate.get("matched_rules", []),
+        },
         "decision_reason_codes": sorted(set(decision_reason_codes)),
         "matched_rules": sorted(set(matched_rules)),
         "runtime_decision": decision,
@@ -3020,6 +3726,83 @@ def decide_final_action(preflight: Dict[str, Any], runtime: Dict[str, Any], outp
     return "allow"
 
 
+def _phase_model_payload(payload: Dict[str, Any], phase: str) -> Dict[str, Any]:
+    direct = payload.get(f"{phase}_model", {})
+    if isinstance(direct, dict) and direct:
+        return direct
+    model_stage = payload.get("model_stage", {})
+    if isinstance(model_stage, dict):
+        nested = model_stage.get(f"{phase}_model", model_stage.get(phase, {}))
+        if isinstance(nested, dict) and nested:
+            return nested
+    return {}
+
+
+def _parse_phase_model(payload: Dict[str, Any], phase: str) -> Dict[str, Any]:
+    raw = _phase_model_payload(payload, phase)
+    action = str(raw.get("action", "skipped")).strip().lower() if raw else "skipped"
+    if action not in {"allow", "downgrade", "block", "skipped"}:
+        action = "allow"
+    findings = raw.get("findings", [])
+    if not isinstance(findings, list):
+        findings = [str(findings)]
+    return {
+        "phase": phase,
+        "present": bool(raw),
+        "action": action,
+        "analysis": str(raw.get("analysis", "")) if raw else "",
+        "reason_codes": sorted(set(str(x) for x in raw.get("reason_codes", []) if str(x).strip())) if raw else [],
+        "findings": [str(x) for x in findings if str(x).strip()],
+        "rule_candidates": list(raw.get("rule_candidates", [])) if isinstance(raw.get("rule_candidates", []), list) else [],
+        "memory_candidates": list(raw.get("memory_candidates", [])) if isinstance(raw.get("memory_candidates", []), list) else [],
+    }
+
+
+def _stage_action_rank(action: str) -> int:
+    return {"allow": 0, "continue": 0, "downgrade": 1, "block": 2, "stop": 2}.get(str(action), 0)
+
+
+def _apply_phase_model_to_stage(stage: Dict[str, Any], phase: str, model: Dict[str, Any]) -> None:
+    if phase == "preflight":
+        decision_key = "preflight_decision"
+        rule_key = "preflight_rule_action"
+    elif phase == "runtime":
+        decision_key = "runtime_decision"
+        rule_key = "runtime_rule_action"
+    else:
+        decision_key = "output_decision"
+        rule_key = "output_rule_action"
+
+    rule_action = str(stage.get(decision_key, "allow"))
+    stage[rule_key] = rule_action
+    stage[f"{phase}_model_action"] = "skipped"
+    stage[f"{phase}_model_analysis"] = ""
+    stage[f"{phase}_model_reason_codes"] = []
+    stage[f"{phase}_model_findings"] = []
+
+    if not model.get("present", False):
+        return
+    if _stage_action_rank(rule_action) >= _stage_action_rank("block"):
+        stage[f"{phase}_model_action"] = "skipped_rule_blocked"
+        return
+
+    model_action = str(model.get("action", "allow"))
+    stage[f"{phase}_model_action"] = model_action
+    stage[f"{phase}_model_analysis"] = str(model.get("analysis", ""))
+    stage[f"{phase}_model_reason_codes"] = list(model.get("reason_codes", []))
+    stage[f"{phase}_model_findings"] = list(model.get("findings", []))
+    stage["decision_reason_codes"] = sorted(
+        set(stage.get("decision_reason_codes", []))
+        | set(model.get("reason_codes", []))
+    )
+
+    if _stage_action_rank(model_action) > _stage_action_rank(rule_action):
+        if phase == "runtime":
+            stage[decision_key] = "stop" if model_action == "block" else "downgrade"
+        else:
+            stage[decision_key] = model_action
+
+
 def emit_event(
     events_log: Optional[Path],
     trace_id: str,
@@ -3139,9 +3922,11 @@ def main() -> None:
             str(payload.get("candidate_response", "")))
 
         planned_actions = limit_array_size(
-            [str(x) for x in payload.get("planned_actions", [])])
+            payload.get("planned_actions", []))
         runtime_events_list = limit_array_size(
             payload.get("runtime_events", []))
+        skill_invocations_list = limit_array_size(
+            payload.get("skill_invocations", []))
         sources_list = limit_array_size(
             payload.get("sources", []))
         intent_tags = limit_array_size(
@@ -3205,6 +3990,7 @@ def main() -> None:
                 "planned_actions": planned_actions,
                 "intent_tags": intent_tags,
                 "runtime_event_count": len(runtime_events_list),
+                "skill_invocation_count": len(skill_invocations_list),
                 "source_count": len(sources_list),
             },
         },
@@ -3241,7 +4027,15 @@ def main() -> None:
 
 
         sens = infer_sensitivity(user_prompt, runtime_events_list, prev_state, policy)
-        preflight = preflight_decision(user_prompt, planned_actions, intent_tags, sens["sensitivity_state"], policy)
+        normalized_skill_invocations = _normalize_skill_invocations(skill_invocations_list, runtime_events_list)
+        preflight = preflight_decision(
+            user_prompt,
+            planned_actions,
+            intent_tags,
+            sens["sensitivity_state"],
+            policy,
+            normalized_skill_invocations,
+        )
 
         # Early exit optimization
         if early_exit_enabled and preflight["preflight_decision"] == "block":
@@ -3251,6 +4045,15 @@ def main() -> None:
                 "alerts": [],
                 "suggested_actions": [],
                 "trust_annotations": [],
+                "skill_gate": {
+                    "skill_gate_action": "skipped",
+                    "skill_invocations": normalized_skill_invocations,
+                    "skill_gate_results": [],
+                    "allowed_skill_steps": [],
+                    "blocked_skill_steps": [],
+                    "requires_confirmation": False,
+                    "safe_substitute_steps": [],
+                },
                 "decision_reason_codes": ["PF_EARLY_EXIT_SKIP"],
                 "matched_rules": [],
                 "runtime_decision": "continue",
@@ -3281,9 +4084,48 @@ def main() -> None:
             predictive_report = predictive_report_raw
         else:
             # Normal flow for non-blocked cases
-            runtime = runtime_decision(runtime_events_list, sources_list, policy)
+            runtime = runtime_decision(runtime_events_list, sources_list, policy, normalized_skill_invocations)
 
             output = output_guard(candidate_response, preflight["sensitivity_state"], runtime["trust_annotations"], policy, leak_patterns)
+
+            combined_action_gate = evaluate_action_gate(
+                planned_actions,
+                skill_gate=runtime.get("skill_gate", {}),
+                policy=policy,
+            )
+            preflight["action_gate"] = combined_action_gate
+            preflight["allowed_actions"] = combined_action_gate.get("allowed_actions", [])
+            preflight["blocked_actions"] = combined_action_gate.get("blocked_actions", [])
+            preflight["decision_reason_codes"] = sorted(
+                set(preflight.get("decision_reason_codes", []))
+                | set(combined_action_gate.get("decision_reason_codes", []))
+            )
+            preflight["matched_rules"] = sorted(
+                set(preflight.get("matched_rules", []))
+                | set(combined_action_gate.get("matched_rules", []))
+            )
+            if combined_action_gate.get("action_gate_action") == "block":
+                runtime["runtime_decision"] = "stop"
+                runtime["decision_reason_codes"] = sorted(
+                    set(runtime.get("decision_reason_codes", []))
+                    | {"ACTION_GATE_ALL_ACTIONS_BLOCKED"}
+                )
+                runtime.setdefault("alerts", []).append({"severity": "critical", "message": "all declared actions were blocked by action gate"})
+            elif combined_action_gate.get("action_gate_action") == "downgrade" and runtime.get("runtime_decision") == "continue":
+                runtime["runtime_decision"] = "downgrade"
+                runtime["decision_reason_codes"] = sorted(
+                    set(runtime.get("decision_reason_codes", []))
+                    | set(combined_action_gate.get("decision_reason_codes", []))
+                )
+
+        phase_models = {
+            "preflight": _parse_phase_model(payload, "preflight"),
+            "runtime": _parse_phase_model(payload, "runtime"),
+            "output": _parse_phase_model(payload, "output"),
+        }
+        _apply_phase_model_to_stage(preflight, "preflight", phase_models["preflight"])
+        _apply_phase_model_to_stage(runtime, "runtime", phase_models["runtime"])
+        _apply_phase_model_to_stage(output, "output", phase_models["output"])
 
         base_rule_action = decide_final_action(preflight, runtime, output)
         base_rule_reason_codes = sorted(
@@ -3305,12 +4147,58 @@ def main() -> None:
             "textual_memory": [],
         }
         sentryskills_role = str(payload.get("sentryskills_role", "main_agent")).strip().lower()
-        process_pending = bool(payload.get("process_pending_proposals", True))
+        raw_promotion_context = payload.get("promotion_context", {})
+        if not isinstance(raw_promotion_context, dict):
+            raw_promotion_context = {}
+        legacy_learning_mode = str(payload.get("learning_mode", "")).strip().lower()
+        if legacy_learning_mode == "experiment" and "source_type" not in raw_promotion_context:
+            raw_promotion_context["source_type"] = "evolution"
+        elif legacy_learning_mode == "test" and "update_mode" not in raw_promotion_context:
+            raw_promotion_context["update_mode"] = "read_only"
+        if "promotion_policy" in payload and "promotion_policy" not in raw_promotion_context:
+            raw_promotion_context["promotion_policy"] = payload.get("promotion_policy")
+        if "source_case_id" in payload and "source_case_id" not in raw_promotion_context:
+            raw_promotion_context["source_case_id"] = payload.get("source_case_id")
+        if bool(payload.get("freeze_rules", False)) or payload.get("allow_test_writeback") is False:
+            raw_promotion_context["update_mode"] = "read_only"
+        if bool(payload.get("finalize_experiment", False)):
+            raw_promotion_context["snapshot_request"] = True
+        promotion_context = normalize_promotion_context(raw_promotion_context, fallback_source_case_id=turn_id) if EXTRA_GUARD_AVAILABLE else {
+            "source_type": "online",
+            "update_mode": "learn",
+            "promotion_policy": "conservative",
+            "source_case_id": turn_id,
+            "source_cases": [],
+            "snapshot_request": False,
+            "snapshot_label": "",
+        }
+        rules_read_only = promotion_context.get("update_mode") == "read_only"
+        process_pending = bool(payload.get("process_pending_proposals", True)) and not rules_read_only
+        feedback = _normalize_feedback(payload)
+        explicit_outcome_signals = _normalize_outcome_signals(payload)
+        auto_outcome_signals = _auto_outcome_signals(preflight, runtime, output, runtime_events_list)
+        rule_proposer_trigger = _derive_rule_proposer_trigger(
+            feedback,
+            explicit_outcome_signals,
+            auto_outcome_signals,
+            promotion_context,
+        )
+        effective_promotion_context = rule_proposer_trigger.get("recommended_promotion_context", promotion_context)
         extra_layer = {
             "base_rule_action": base_rule_action,
             "base_rule_reason_codes": base_rule_reason_codes,
             "base_rule_matched_rules": base_rule_matched_rules,
             "sentryskills_role": sentryskills_role,
+            "promotion_context": promotion_context,
+            "effective_promotion_context": effective_promotion_context,
+            "feedback": feedback,
+            "outcome_signals": {
+                "explicit": explicit_outcome_signals,
+                "auto": auto_outcome_signals,
+            },
+            "rule_proposer_trigger": rule_proposer_trigger,
+            "rule_proposer_status": "not_required",
+            "pending_rule_proposer_task": {},
             "extra_rule_action": "allow",
             "extra_rule_reason_codes": [],
             "extra_rule_matched_rules": [],
@@ -3346,8 +4234,39 @@ def main() -> None:
             try:
                 extra_state = load_extra_state(project_root)
                 extra_layer["storage_paths"] = {k: str(v) for k, v in extra_state.get("paths", {}).items()}
-                extra_rule_result = evaluate_extra_rules(payload, list(extra_state.get("active_rules", [])))
-                extra_layer.update(extra_rule_result)
+                active_extra_rules = list(extra_state.get("active_rules", []))
+                preflight_extra = evaluate_extra_rules(payload, active_extra_rules, phase_scope="preflight")
+                runtime_extra = evaluate_extra_rules(payload, active_extra_rules, phase_scope="runtime")
+                output_extra = evaluate_extra_rules(payload, active_extra_rules, phase_scope="output")
+                extra_rule_action = merge_extra_action(
+                    merge_extra_action(preflight_extra.get("extra_rule_action", "allow"), runtime_extra.get("extra_rule_action", "allow")),
+                    output_extra.get("extra_rule_action", "allow"),
+                )
+                extra_layer.update(
+                    {
+                        "extra_rule_action": extra_rule_action,
+                        "extra_rule_reason_codes": sorted(
+                            set(preflight_extra.get("extra_rule_reason_codes", []))
+                            | set(runtime_extra.get("extra_rule_reason_codes", []))
+                            | set(output_extra.get("extra_rule_reason_codes", []))
+                        ),
+                        "extra_rule_matched_rules": sorted(
+                            set(preflight_extra.get("extra_rule_matched_rules", []))
+                            | set(runtime_extra.get("extra_rule_matched_rules", []))
+                            | set(output_extra.get("extra_rule_matched_rules", []))
+                        ),
+                        "extra_rule_observations": (
+                            list(preflight_extra.get("extra_rule_observations", []))
+                            + list(runtime_extra.get("extra_rule_observations", []))
+                            + list(output_extra.get("extra_rule_observations", []))
+                        ),
+                        "phase_extra_rules": {
+                            "preflight": preflight_extra,
+                            "runtime": runtime_extra,
+                            "output": output_extra,
+                        },
+                    }
+                )
             except Exception as extra_exc:
                 logger.warning(f"Extra rule stage failed and will be skipped: {extra_exc}")
                 extra_layer["extra_rule_reason_codes"] = ["EXTRA_RULE_STAGE_ERROR"]
@@ -3399,22 +4318,45 @@ def main() -> None:
                     "knowledge_source": "model_stage",
                 }
             else:
-                extra_layer["model_stage_status"] = "completed" if has_model_result else "skipped"
+                extra_layer["model_stage_status"] = "completed" if has_model_result else "required_not_provided"
                 if not has_model_result:
-                    extra_layer["model_stage_analysis"] = "Model stage was expected but no framework model result was provided. Current turn keeps the rule-stage decision."
-                    extra_layer["model_stage_action"] = "skipped"
-                    extra_layer["knowledge_writeback_status"] = "skipped"
+                    extra_layer["model_stage_analysis"] = "Model stage is required for non-blocked turns, but the framework did not provide a completed model_stage payload. Current turn keeps the rule-stage decision; the framework should call the hook again after model_stage completes."
+                    extra_layer["model_stage_action"] = "required_not_provided"
+                    extra_layer["knowledge_writeback_status"] = "awaiting_framework_model_stage"
                     extra_layer["knowledge_writeback"] = {
                         "writeback_executed": False,
-                        "skipped_reason": "model_stage_missing",
+                        "skipped_reason": "model_stage_required_not_provided",
                         "knowledge_source": "model_stage",
                     }
+                    if rule_proposer_trigger.get("triggered") and not rules_read_only:
+                        proposer_task = _build_rule_proposer_task(
+                            turn_id,
+                            promotion_context,
+                            rule_proposer_trigger,
+                            user_prompt,
+                            planned_actions,
+                            runtime_events_list,
+                            candidate_response,
+                        )
+                        extra_layer["pending_rule_proposer_task"] = proposer_task
+                        extra_layer["rule_proposer_status"] = "required"
+                        extra_layer["pending_model_task"] = proposer_task
+                        extra_layer["model_stage_status"] = "rule_proposer_required"
+                        extra_layer["model_stage_action"] = "rule_proposer_required"
+                        extra_layer["model_stage_analysis"] = "Feedback or outcome signals require a rule proposer pass before knowledge can be consolidated."
+                        extra_layer["knowledge_writeback_status"] = "awaiting_rule_proposer"
+                        extra_layer["knowledge_writeback"] = {
+                            "writeback_executed": False,
+                            "skipped_reason": "rule_proposer_required",
+                            "knowledge_source": "feedback_or_outcome",
+                            "promotion_context": rule_proposer_trigger.get("recommended_promotion_context", promotion_context),
+                        }
                 else:
                     if PREDICTIVE_ANALYSIS_AVAILABLE:
                         try:
                             predictive_report_result = predict_risks(
                                 user_prompt=user_prompt,
-                                planned_actions=planned_actions,
+                                planned_actions=[_action_label(action) for action in planned_actions],
                                 conversation_history=conv_history,
                             )
                             predictive_report_raw = predictive_report_result.to_dict()
@@ -3429,7 +4371,20 @@ def main() -> None:
                     if EXTRA_GUARD_AVAILABLE:
                         try:
                             model_knowledge = synthesize_knowledge_from_model_stage(model_stage, turn_id)
-                            if model_dispatch_mode == "async":
+                            if rules_read_only:
+                                extra_layer["proposal_write"] = {
+                                    "proposal_written": False,
+                                    "skipped_reason": "promotion_context_read_only",
+                                    "promotion_context": promotion_context,
+                                }
+                                extra_layer["knowledge_writeback_status"] = "read_only"
+                                extra_layer["knowledge_writeback"] = {
+                                    "writeback_executed": False,
+                                    "skipped_reason": "promotion_context_read_only",
+                                    "knowledge_source": "model_stage",
+                                    "promotion_context": promotion_context,
+                                }
+                            elif model_dispatch_mode == "async":
                                 proposal_result = write_async_proposal(
                                     project_root=project_root,
                                     trace_id=trace_id,
@@ -3439,6 +4394,7 @@ def main() -> None:
                                     model_dispatch_mode=model_dispatch_mode,
                                     model_stage=model_stage,
                                     model_knowledge=model_knowledge,
+                                    promotion_context=effective_promotion_context,
                                 )
                                 extra_layer["proposal_write"] = proposal_result
                                 extra_layer["knowledge_writeback_status"] = "skipped"
@@ -3456,16 +4412,38 @@ def main() -> None:
                                     candidate_rules=list(extra_state.get("candidate_rules", [])),
                                     textual_memory=list(extra_state.get("textual_memory", [])),
                                     model_knowledge=model_knowledge,
+                                    promotion_context=effective_promotion_context,
                                 )
                                 extra_layer.update(writeback_result)
                                 extra_layer["knowledge_writeback_status"] = "completed"
                                 if not model_knowledge.get("rule_candidates") and not model_knowledge.get("memory_candidates"):
-                                    extra_layer["knowledge_writeback_status"] = "skipped"
-                                    extra_layer["knowledge_writeback"] = {
-                                        "writeback_executed": False,
-                                        "skipped_reason": "model_stage_no_new_knowledge",
-                                        "knowledge_source": "model_stage",
-                                    }
+                                    if rule_proposer_trigger.get("triggered") and not rules_read_only:
+                                        proposer_task = _build_rule_proposer_task(
+                                            turn_id,
+                                            promotion_context,
+                                            rule_proposer_trigger,
+                                            user_prompt,
+                                            planned_actions,
+                                            runtime_events_list,
+                                            candidate_response,
+                                        )
+                                        extra_layer["pending_rule_proposer_task"] = proposer_task
+                                        extra_layer["rule_proposer_status"] = "required"
+                                        extra_layer["pending_model_task"] = proposer_task
+                                        extra_layer["knowledge_writeback_status"] = "awaiting_rule_proposer"
+                                        extra_layer["knowledge_writeback"] = {
+                                            "writeback_executed": False,
+                                            "skipped_reason": "rule_proposer_required",
+                                            "knowledge_source": "feedback_or_outcome",
+                                            "promotion_context": rule_proposer_trigger.get("recommended_promotion_context", promotion_context),
+                                        }
+                                    else:
+                                        extra_layer["knowledge_writeback_status"] = "skipped"
+                                        extra_layer["knowledge_writeback"] = {
+                                            "writeback_executed": False,
+                                            "skipped_reason": "model_stage_no_new_knowledge",
+                                            "knowledge_source": "model_stage",
+                                        }
                         except Exception as writeback_exc:
                             logger.warning(f"Extra knowledge writeback failed and will be skipped: {writeback_exc}")
                             extra_layer["knowledge_writeback_status"] = "failed"
@@ -3491,6 +4469,14 @@ def main() -> None:
                     "skipped_reason": "proposal_sweep_error",
                     "error": str(proposal_exc),
                 }
+        elif rules_read_only:
+            extra_layer["proposal_sweep"] = {
+                "sweep_executed": False,
+                "sweep_timing": "end_of_task",
+                "effective_scope": "subsequent_turns_only",
+                "skipped_reason": "promotion_context_read_only",
+                "promotion_context": promotion_context,
+            }
         elif sentryskills_role == "subagent":
             extra_layer["proposal_sweep"] = {
                 "sweep_executed": False,
@@ -3505,6 +4491,24 @@ def main() -> None:
                 "effective_scope": "subsequent_turns_only",
                 "skipped_reason": "disabled_by_payload",
             }
+
+        if EXTRA_GUARD_AVAILABLE and promotion_context.get("snapshot_request", False):
+            try:
+                refreshed_extra_state = load_extra_state(project_root)
+                extra_layer["rule_snapshot_manifest"] = write_rule_snapshot_manifest(
+                    project_root=project_root,
+                    trace_id=trace_id,
+                    turn_id=turn_id,
+                    active_rules=list(refreshed_extra_state.get("active_rules", [])),
+                    promotion_context=promotion_context,
+                )
+            except Exception as freeze_exc:
+                logger.warning(f"Rule snapshot manifest write failed and will be skipped: {freeze_exc}")
+                extra_layer["rule_snapshot_manifest"] = {
+                    "rule_snapshot_written": False,
+                    "skipped_reason": "rule_snapshot_manifest_error",
+                    "error": str(freeze_exc),
+                }
 
         extra_layer["model_executor"] = _derive_model_executor(extra_layer)
         extra_layer["model_stage_result_available"] = _derive_model_stage_result_available(extra_layer)
@@ -3685,6 +4689,9 @@ def main() -> None:
                     "proposal_sweep": extra_layer.get("proposal_sweep", {}),
                     "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
                     "proposal_write": extra_layer.get("proposal_write", {}),
+                    "rule_proposer_trigger": extra_layer.get("rule_proposer_trigger", {}),
+                    "rule_proposer_status": extra_layer.get("rule_proposer_status", "not_required"),
+                    "pending_rule_proposer_task": extra_layer.get("pending_rule_proposer_task", {}),
                     "dedup_summary": extra_layer.get("dedup_summary", {}),
                     "validation_summary": extra_layer.get("validation_summary", {}),
                     "knowledge_writeback": extra_layer.get("knowledge_writeback", {}),
@@ -3716,6 +4723,7 @@ def main() -> None:
         duration_ms = int((perf_counter() - hook_start) * 1000)
         decision_trace = _build_decision_trace(preflight, runtime, output, final_action)
         decision_explanation = _build_explanation(preflight, runtime, output)
+        action_gate_summary = preflight.get("action_gate", evaluate_action_gate(planned_actions, policy=policy))
 
         emit_event(
             events_sink,
@@ -3732,10 +4740,22 @@ def main() -> None:
                 "residual_risks": sorted(set(residual_risks)),
                 "audit_notes": sens["reasons"],
                 "retention": retention,
+                "action_gate": action_gate_summary,
+                "allowed_actions": action_gate_summary.get("allowed_actions", []),
+                "blocked_actions": action_gate_summary.get("blocked_actions", []),
+                "blocked_action_reasons": action_gate_summary.get("blocked_action_reasons", []),
+                "execution_directive": action_gate_summary.get("execution_directive", "execute_all_declared_actions"),
                 "decision_chain": {
                     "preflight_decision": preflight["preflight_decision"],
+                    "preflight_rule_action": preflight.get("preflight_rule_action", preflight["preflight_decision"]),
+                    "preflight_model_action": preflight.get("preflight_model_action", "skipped"),
                     "runtime_decision": runtime["runtime_decision"],
+                    "runtime_rule_action": runtime.get("runtime_rule_action", runtime["runtime_decision"]),
+                    "runtime_model_action": runtime.get("runtime_model_action", "skipped"),
                     "output_decision": output["output_decision"],
+                    "output_rule_action": output.get("output_rule_action", output["output_decision"]),
+                    "output_model_action": output.get("output_model_action", "skipped"),
+                    "action_gate_action": action_gate_summary.get("action_gate_action", "allow"),
                     "base_rule_action": base_rule_action,
                     "extra_rule_action": extra_layer.get("extra_rule_action", "allow"),
                     "rule_stage_action": rule_stage_action,
@@ -3746,6 +4766,8 @@ def main() -> None:
                     "model_executor": extra_layer.get("model_executor", "none"),
                     "model_stage_result_available": extra_layer.get("model_stage_result_available", False),
                     "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
+                    "promotion_context": promotion_context,
+                    "rule_proposer_triggered": bool(rule_proposer_trigger.get("triggered", False)),
                     "final_action": final_action,
                 },
                 "decision_explanation": decision_explanation,
@@ -3755,6 +4777,7 @@ def main() -> None:
                     "runtime": runtime.get("analysis", ""),
                     "output_guard": output.get("analysis", ""),
                 },
+                "skill_gate": runtime.get("skill_gate", {}),
                 "extra_layer": {
                     "rule_stage": {
                         "action": extra_layer.get("extra_rule_action", "allow"),
@@ -3775,15 +4798,24 @@ def main() -> None:
                         "findings": extra_layer.get("model_stage_findings", []),
                         "pending_model_task": extra_layer.get("pending_model_task", {}),
                     },
+                    "promotion_context": extra_layer.get("promotion_context", {}),
+                    "effective_promotion_context": extra_layer.get("effective_promotion_context", {}),
                     "proposal_sweep": extra_layer.get("proposal_sweep", {}),
                     "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
                     "proposal_write": extra_layer.get("proposal_write", {}),
+                    "rule_snapshot_manifest": extra_layer.get("rule_snapshot_manifest", {}),
                     "knowledge_writeback_status": extra_layer.get("knowledge_writeback_status", "skipped"),
                     "dedup_summary": extra_layer.get("dedup_summary", {}),
                     "validation_summary": extra_layer.get("validation_summary", {}),
                     "knowledge_writeback": extra_layer.get("knowledge_writeback", {}),
                     "knowledge_item_ids": extra_layer.get("knowledge_item_ids", []),
                     "storage_paths": extra_layer.get("storage_paths", {}),
+                    "phase_extra_rules": extra_layer.get("phase_extra_rules", {}),
+                    "feedback": extra_layer.get("feedback", {}),
+                    "outcome_signals": extra_layer.get("outcome_signals", {}),
+                    "rule_proposer_trigger": extra_layer.get("rule_proposer_trigger", {}),
+                    "rule_proposer_status": extra_layer.get("rule_proposer_status", "not_required"),
+                    "pending_rule_proposer_task": extra_layer.get("pending_rule_proposer_task", {}),
                 },
                 "predictive_analysis": predictive_report_raw if PREDICTIVE_ANALYSIS_AVAILABLE else {},
                 "duration_ms": duration_ms,
@@ -3840,14 +4872,25 @@ def main() -> None:
             "model_stage_result_available": extra_layer.get("model_stage_result_available", False),
             "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
             "knowledge_writeback_status": extra_layer.get("knowledge_writeback_status", "skipped"),
+            "promotion_context": promotion_context,
+            "rule_proposer_triggered": bool(rule_proposer_trigger.get("triggered", False)),
             "final_action": final_action,
+            "action_gate": action_gate_summary,
+            "execution_directive": action_gate_summary.get("execution_directive", "execute_all_declared_actions"),
             "decision_reason_codes": decision_reason_codes,
             "matched_rules": matched_rules,
             "duration_ms": duration_ms,
             "decision_chain": {
                 "preflight_decision": preflight["preflight_decision"],
+                "preflight_rule_action": preflight.get("preflight_rule_action", preflight["preflight_decision"]),
+                "preflight_model_action": preflight.get("preflight_model_action", "skipped"),
                 "runtime_decision": runtime["runtime_decision"],
+                "runtime_rule_action": runtime.get("runtime_rule_action", runtime["runtime_decision"]),
+                "runtime_model_action": runtime.get("runtime_model_action", "skipped"),
                 "output_decision": output["output_decision"],
+                "output_rule_action": output.get("output_rule_action", output["output_decision"]),
+                "output_model_action": output.get("output_model_action", "skipped"),
+                "action_gate_action": action_gate_summary.get("action_gate_action", "allow"),
                 "base_rule_action": base_rule_action,
                 "extra_rule_action": extra_layer.get("extra_rule_action", "allow"),
                 "rule_stage_action": rule_stage_action,
@@ -3858,6 +4901,8 @@ def main() -> None:
                 "model_executor": extra_layer.get("model_executor", "none"),
                 "model_stage_result_available": extra_layer.get("model_stage_result_available", False),
                 "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
+                "promotion_context": promotion_context,
+                "rule_proposer_triggered": bool(rule_proposer_trigger.get("triggered", False)),
                 "final_action": final_action,
             },
             "decision_explanation": decision_explanation,
@@ -3867,6 +4912,7 @@ def main() -> None:
                 "runtime": runtime.get("analysis", ""),
                 "output_guard": output.get("analysis", ""),
             },
+            "skill_gate": runtime.get("skill_gate", {}),
             "extra_layer": {
                 "rule_stage": {
                     "action": extra_layer.get("extra_rule_action", "allow"),
@@ -3887,15 +4933,24 @@ def main() -> None:
                     "findings": extra_layer.get("model_stage_findings", []),
                     "pending_model_task": extra_layer.get("pending_model_task", {}),
                 },
+                "promotion_context": extra_layer.get("promotion_context", {}),
+                "effective_promotion_context": extra_layer.get("effective_promotion_context", {}),
+                "feedback": extra_layer.get("feedback", {}),
+                "outcome_signals": extra_layer.get("outcome_signals", {}),
+                "rule_proposer_trigger": extra_layer.get("rule_proposer_trigger", {}),
+                "rule_proposer_status": extra_layer.get("rule_proposer_status", "not_required"),
+                "pending_rule_proposer_task": extra_layer.get("pending_rule_proposer_task", {}),
                 "proposal_sweep": extra_layer.get("proposal_sweep", {}),
                 "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
                 "proposal_write": extra_layer.get("proposal_write", {}),
+                "rule_snapshot_manifest": extra_layer.get("rule_snapshot_manifest", {}),
                 "knowledge_writeback_status": extra_layer.get("knowledge_writeback_status", "skipped"),
                 "dedup_summary": extra_layer.get("dedup_summary", {}),
                 "validation_summary": extra_layer.get("validation_summary", {}),
                 "knowledge_writeback": extra_layer.get("knowledge_writeback", {}),
                 "knowledge_item_ids": extra_layer.get("knowledge_item_ids", []),
                 "storage_paths": extra_layer.get("storage_paths", {}),
+                "phase_extra_rules": extra_layer.get("phase_extra_rules", {}),
             },
             "output_guard": {
                 "output_decision": output["output_decision"],
@@ -3956,6 +5011,7 @@ def main() -> None:
                 "model_executor": extra_layer.get("model_executor", "none"),
                 "model_stage_result_available": extra_layer.get("model_stage_result_available", False),
                 "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
+                "promotion_context": promotion_context,
                 "final_action": final_action,
                 "duration_ms": duration_ms,
                 "decision_chain": summary["decision_chain"],
@@ -3968,6 +5024,9 @@ def main() -> None:
                 "safe_response_preview": excerpt(output["safe_response"], 200),
                 "redaction_summary": output["redaction_summary"],
                 "retention": retention,
+                "action_gate": summary["action_gate"],
+                "execution_directive": summary["execution_directive"],
+                "skill_gate": summary["skill_gate"],
                 "extra_layer": summary["extra_layer"],
                 "input_path": str(turn_input_path),
                 "turn_dir": str(turn_dir),
@@ -3991,6 +5050,10 @@ def main() -> None:
                     "model_executor": extra_layer.get("model_executor", "none"),
                     "model_stage_result_available": extra_layer.get("model_stage_result_available", False),
                     "proposal_sweep_effect": extra_layer.get("proposal_sweep_effect", "no_change"),
+                    "promotion_context": promotion_context,
+                    "skill_gate_action": runtime.get("skill_gate", {}).get("skill_gate_action", "allow"),
+                    "action_gate_action": summary["action_gate"].get("action_gate_action", "allow"),
+                    "execution_directive": summary["execution_directive"],
                     "final_action": final_action,
                     "reason_codes": decision_reason_codes,
                     "matched_rules": matched_rules,

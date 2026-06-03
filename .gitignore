@@ -75,4 +75,8 @@ result.json
 
 PURPOSE.md
 
-benchmark
+benchmark/*
+!benchmark/
+!benchmark/README.md
+!benchmark/convert_agentdojo_framework.py
+!benchmark/batch_run_agentdojo.py

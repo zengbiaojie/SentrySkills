@@ -136,10 +136,22 @@ def sanitize_input(payload: Dict[str, Any]) -> Dict[str, Any]:
         else:
             sanitized["user_prompt"] = str(prompt)[:1_000_000]
 
-    # Sanitize arrays
-    for key in ["planned_actions", "intent_tags"]:
-        if key in payload and isinstance(payload[key], list):
-            sanitized[key] = [str(x)[:500] for x in payload[key][:100]]
+    if "planned_actions" in payload and isinstance(payload["planned_actions"], list):
+        sanitized["planned_actions"] = []
+        for item in payload["planned_actions"][:100]:
+            if isinstance(item, dict):
+                clean_action: Dict[str, Any] = {}
+                for k, v in item.items():
+                    if isinstance(v, str):
+                        clean_action[str(k)[:200]] = v[:1000].replace("\x00", "")
+                    else:
+                        clean_action[str(k)[:200]] = v
+                sanitized["planned_actions"].append(clean_action)
+            else:
+                sanitized["planned_actions"].append(str(item)[:500].replace("\x00", ""))
+
+    if "intent_tags" in payload and isinstance(payload["intent_tags"], list):
+        sanitized["intent_tags"] = [str(x)[:500] for x in payload["intent_tags"][:100]]
 
     # Sanitize runtime_events
     if "runtime_events" in payload and isinstance(payload["runtime_events"], list):
@@ -153,6 +165,33 @@ def sanitize_input(payload: Dict[str, Any]) -> Dict[str, Any]:
                     else:
                         clean_event[k] = v
                 sanitized["runtime_events"].append(clean_event)
+
+    # Sanitize dynamic skill invocation gates. These are runtime-time
+    # declarations made immediately before invoking a non-SentrySkills skill.
+    if "skill_invocations" in payload and isinstance(payload["skill_invocations"], list):
+        sanitized["skill_invocations"] = []
+        for invocation in payload["skill_invocations"][:100]:
+            if isinstance(invocation, dict):
+                clean_invocation = {}
+                for k, v in invocation.items():
+                    if isinstance(v, str):
+                        clean_invocation[k] = v[:2000].replace("\x00", "")
+                    elif isinstance(v, list):
+                        clean_invocation[k] = []
+                        for item in v[:100]:
+                            if isinstance(item, dict):
+                                clean_item = {}
+                                for item_key, item_value in item.items():
+                                    if isinstance(item_value, str):
+                                        clean_item[str(item_key)[:200]] = item_value[:1000].replace("\x00", "")
+                                    else:
+                                        clean_item[str(item_key)[:200]] = item_value
+                                clean_invocation[k].append(clean_item)
+                            else:
+                                clean_invocation[k].append(str(item)[:1000].replace("\x00", ""))
+                    else:
+                        clean_invocation[k] = v
+                sanitized["skill_invocations"].append(clean_invocation)
 
     # Sanitize sources
     if "sources" in payload and isinstance(payload["sources"], list):
@@ -199,11 +238,61 @@ def sanitize_input(payload: Dict[str, Any]) -> Dict[str, Any]:
                             clean_item[item_key] = item_value[:5000].replace("\x00", "")
                         elif isinstance(item_value, list):
                             clean_item[item_key] = [str(x)[:1000] for x in item_value[:50]]
+                        elif isinstance(item_value, dict):
+                            clean_nested: Dict[str, Any] = {}
+                            for nested_key, nested_value in item_value.items():
+                                if isinstance(nested_value, str):
+                                    clean_nested[str(nested_key)[:200]] = nested_value[:2000].replace("\x00", "")
+                                elif isinstance(nested_value, list):
+                                    clean_nested[str(nested_key)[:200]] = [str(x)[:1000] for x in nested_value[:50]]
+                                else:
+                                    clean_nested[str(nested_key)[:200]] = nested_value
+                            clean_item[item_key] = clean_nested
                         else:
                             clean_item[item_key] = item_value
                     clean_items.append(clean_item)
                 clean_model_stage[key] = clean_items
         sanitized["model_stage"] = clean_model_stage
+
+    for phase_key in ["preflight_model", "runtime_model", "output_model"]:
+        if phase_key in payload and isinstance(payload[phase_key], dict):
+            phase_model = payload[phase_key]
+            clean_phase_model: Dict[str, Any] = {}
+            if "action" in phase_model:
+                clean_phase_model["action"] = str(phase_model["action"])[:100]
+            if "analysis" in phase_model:
+                clean_phase_model["analysis"] = str(phase_model["analysis"])[:20_000].replace("\x00", "")
+            for key in ["reason_codes", "findings"]:
+                if key in phase_model and isinstance(phase_model[key], list):
+                    clean_phase_model[key] = [str(x)[:1000] for x in phase_model[key][:100]]
+            for key in ["rule_candidates", "memory_candidates"]:
+                if key in phase_model and isinstance(phase_model[key], list):
+                    clean_items = []
+                    for item in phase_model[key][:50]:
+                        if not isinstance(item, dict):
+                            continue
+                        clean_item: Dict[str, Any] = {}
+                        for item_key, item_value in item.items():
+                            if isinstance(item_value, str):
+                                clean_item[item_key] = item_value[:5000].replace("\x00", "")
+                            elif isinstance(item_value, list):
+                                clean_item[item_key] = [str(x)[:1000] for x in item_value[:50]]
+                            elif isinstance(item_value, dict):
+                                clean_item[item_key] = {
+                                    str(nested_key)[:200]: (
+                                        nested_value[:2000].replace("\x00", "")
+                                        if isinstance(nested_value, str)
+                                        else [str(x)[:1000] for x in nested_value[:50]]
+                                        if isinstance(nested_value, list)
+                                        else nested_value
+                                    )
+                                    for nested_key, nested_value in item_value.items()
+                                }
+                            else:
+                                clean_item[item_key] = item_value
+                        clean_items.append(clean_item)
+                    clean_phase_model[key] = clean_items
+            sanitized[phase_key] = clean_phase_model
 
     if "model_dispatch_mode" in payload:
         sanitized["model_dispatch_mode"] = str(payload["model_dispatch_mode"])[:100]
@@ -216,6 +305,76 @@ def sanitize_input(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if "process_pending_proposals" in payload:
         sanitized["process_pending_proposals"] = bool(payload["process_pending_proposals"])
+
+    if "promotion_context" in payload and isinstance(payload["promotion_context"], dict):
+        clean_context: Dict[str, Any] = {}
+        for key, value in payload["promotion_context"].items():
+            if isinstance(value, str):
+                clean_context[str(key)[:200]] = value[:2000].replace("\x00", "")
+            elif isinstance(value, bool):
+                clean_context[str(key)[:200]] = value
+            elif isinstance(value, list):
+                clean_context[str(key)[:200]] = [str(x)[:1000].replace("\x00", "") for x in value[:50]]
+            else:
+                clean_context[str(key)[:200]] = value
+        sanitized["promotion_context"] = clean_context
+
+    if "feedback_text" in payload:
+        sanitized["feedback_text"] = str(payload["feedback_text"])[:5000].replace("\x00", "")
+
+    if "feedback" in payload and isinstance(payload["feedback"], str):
+        sanitized["feedback"] = str(payload["feedback"])[:5000].replace("\x00", "")
+    elif "feedback" in payload and isinstance(payload["feedback"], dict):
+        clean_feedback: Dict[str, Any] = {}
+        for key, value in payload["feedback"].items():
+            if isinstance(value, str):
+                clean_feedback[str(key)[:200]] = value[:5000].replace("\x00", "")
+            elif isinstance(value, bool):
+                clean_feedback[str(key)[:200]] = value
+            elif isinstance(value, list):
+                clean_feedback[str(key)[:200]] = [str(x)[:2000].replace("\x00", "") for x in value[:100]]
+            elif isinstance(value, dict):
+                clean_feedback[str(key)[:200]] = {
+                    str(nested_key)[:200]: (
+                        nested_value[:2000].replace("\x00", "")
+                        if isinstance(nested_value, str)
+                        else nested_value
+                    )
+                    for nested_key, nested_value in value.items()
+                }
+            else:
+                clean_feedback[str(key)[:200]] = value
+        sanitized["feedback"] = clean_feedback
+
+    if "outcome_signals" in payload and isinstance(payload["outcome_signals"], list):
+        clean_signals = []
+        for item in payload["outcome_signals"][:50]:
+            if isinstance(item, dict):
+                clean_item: Dict[str, Any] = {}
+                for key, value in item.items():
+                    if isinstance(value, str):
+                        clean_item[str(key)[:200]] = value[:5000].replace("\x00", "")
+                    elif isinstance(value, list):
+                        clean_item[str(key)[:200]] = [str(x)[:2000].replace("\x00", "") for x in value[:50]]
+                    else:
+                        clean_item[str(key)[:200]] = value
+                clean_signals.append(clean_item)
+            else:
+                clean_signals.append(str(item)[:2000].replace("\x00", ""))
+        sanitized["outcome_signals"] = clean_signals
+
+    # Backward-compatible aliases. New integrations should use promotion_context.
+    for key in ["learning_mode", "promotion_policy", "source_case_id"]:
+        if key in payload:
+            sanitized[key] = str(payload[key])[:200].replace("\x00", "")
+
+    for key in ["freeze_rules", "allow_test_writeback", "finalize_experiment"]:
+        if key in payload:
+            sanitized[key] = bool(payload[key])
+
+    for key in ["project_path", "project_root", "workspace_root", "repo_root"]:
+        if key in payload and isinstance(payload[key], str):
+            sanitized[key] = payload[key][:5000].replace("\x00", "")
 
     if "pending_model_task" in payload and isinstance(payload["pending_model_task"], dict):
         clean_pending: Dict[str, Any] = {}
