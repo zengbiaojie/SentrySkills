@@ -75,6 +75,13 @@ result.json
 
 PURPOSE.md
 
+exp.md
+img_prompt.txt
+pipeline.md
+propose.md
+ROADMAP.md
+OPTIMIZATION_TODO.md
+
 benchmark/*
 !benchmark/
 !benchmark/README.md
